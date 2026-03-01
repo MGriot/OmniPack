@@ -1,13 +1,15 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Wait** - Advanced Physics (Stability & Force Transfer) Implemented
+**Wait** - Intelligent MCTS Search Implemented (Verified)
 
 ## 📋 Backlog
-- [ ] 012: PDF/CAD Export logic
-- [ ] 013: Final Integration Test (Heavy Load Scenario)
+- [ ] 013: PDF/CAD Report Generation
+- [ ] 014: Visual "Thinking" Progress Bar in UI
 
 ## 🕒 Recent History
+- [x] 012: Intelligent Search - MCTS (Monte Carlo Tree Search)
+- [x] 011c: Barycentric Logic & Advanced Physics
 - [x] 011b: Real Physics - Stability & Force Transfer
 - [x] 011a: Weight & Stacking Constraints
 - [x] 010: Multi-Container & Strategy Logic

@@ -3,6 +3,7 @@ from .models import Item, Container
 from .engine import Level1Engine
 from .engine_v2 import Level2Engine
 from .genetic import GeneticOptimizer
+from .mcts import MonteCarloOptimizer
 import copy
 
 class MultiContainerEngine:
@@ -30,12 +31,18 @@ class MultiContainerEngine:
             optimizer = GeneticOptimizer(c1, remaining_items, population_size=10, generations=5)
             packed, _ = optimizer.evolve()
             c1.items = packed
-            # Find what wasn't packed
-            packed_ids = {it.id for it in packed}
-            unpacked = [it for it in remaining_items if it.id not in packed_ids]
+        elif mode == "mcts":
+            optimizer = MonteCarloOptimizer(c1, remaining_items, time_limit=3.0)
+            packed = optimizer.search()
+            c1.items = packed
         else:
             engine = self._get_engine(c1, mode)
             unpacked = engine.pack(remaining_items)
+            # Find what was packed for consistent handling
+            # In Level 1/2 engine is in-place, so we don't need to reassign
+        
+        packed_ids = {it.id for it in c1.items}
+        unpacked = [it for it in remaining_items if it.id not in packed_ids]
         
         containers.append(c1)
         if not unpacked:
@@ -44,7 +51,7 @@ class MultiContainerEngine:
         # 2. Strategy Logic for overflow
         if strategy == "minimize_out":
             c2 = Container(self.base_container.id + "_Overflow", self.base_container.width, self.base_container.height, self.base_container.depth)
-            engine2 = self._get_engine(c2, mode)
+            engine2 = self._get_engine(c2, mode if mode in ["level1", "level2"] else "level2")
             engine2.pack(unpacked)
             containers.append(c2)
             
@@ -54,7 +61,7 @@ class MultiContainerEngine:
             suggested_h = max(max((i.height for i in unpacked), default=0), total_vol / (max_w * self.base_container.depth))
             
             c2 = Container("Suggested_Space", max_w, suggested_h, self.base_container.depth)
-            engine2 = self._get_engine(c2, mode)
+            engine2 = self._get_engine(c2, "level2")
             engine2.pack(unpacked)
             containers.append(c2)
 

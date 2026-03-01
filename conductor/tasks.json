@@ -66,9 +66,23 @@
     {
       "id": "010",
       "title": "Multi-Container & Strategy Logic",
-      "status": "in_progress",
+      "status": "done",
       "verification_method": "API test with overflowing items returning multiple container suggestions",
       "description": "Implement logic to handle overflow by suggesting additional containers and prioritizing displacement."
+    },
+    {
+      "id": "011",
+      "title": "Advanced Physics & Stacking Constraints",
+      "status": "done",
+      "verification_method": "CoG and Load propagation verification",
+      "description": "Implemented weight-aware recursive load transfer and Center of Gravity stability checks."
+    },
+    {
+      "id": "012",
+      "title": "Intelligent Search - Monte Carlo Tree Search (MCTS)",
+      "status": "in_progress",
+      "verification_method": "Benchmark MCTS vs BFD",
+      "description": "Implement an exploratory 'thinking' engine using MCTS to find local/global minima for packing waste."
     }
   ]
 }
