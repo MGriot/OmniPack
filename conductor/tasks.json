@@ -31,7 +31,7 @@
     {
       "id": "005",
       "title": "Level 1 Engine - Best-Fit Decreasing",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Packing benchmark (Level 1)",
       "description": "Implement the core heuristic for Level 1 engine."
     }
