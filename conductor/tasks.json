@@ -24,7 +24,7 @@
     {
       "id": "004",
       "title": "Level 1 Engine - EP Algorithm",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Packing test with Extreme Points",
       "description": "Implement Extreme Points logic for coordinate generation."
     },
