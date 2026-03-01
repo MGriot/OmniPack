@@ -54,6 +54,8 @@ class GeneticOptimizer:
 
     def _mutate(self, individual: List[int], mutation_rate=0.1):
         """Swap mutation."""
+        if len(individual) < 2:
+            return
         if random.random() < mutation_rate:
             idx1, idx2 = random.sample(range(len(individual)), 2)
             individual[idx1], individual[idx2] = individual[idx2], individual[idx1]
