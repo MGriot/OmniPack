@@ -48,6 +48,20 @@
       "status": "done",
       "verification_method": "Optimization test (Higher volume utilization)",
       "description": "Implement a parallel genetic algorithm to evolve packing sequences."
+    },
+    {
+      "id": "008",
+      "title": "Visualization - JSON Export & HTML Prototype",
+      "status": "done",
+      "verification_method": "Visual check of generated HTML/JSON",
+      "description": "Implement JSON serialization for packed containers and a basic Babylon.js viewer."
+    },
+    {
+      "id": "009",
+      "title": "API Layer - FastAPI",
+      "status": "todo",
+      "verification_method": "Endpoint test with client request",
+      "description": "Implement FastAPI endpoints for packing requests."
     }
   ]
 }

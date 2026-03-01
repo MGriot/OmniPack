@@ -1,13 +1,13 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Wait** - Evolutionary Core Completion (Verified)
+**009** - API Layer - FastAPI (Ready)
 
 ## 📋 Backlog
-- [ ] 008: Visualization Strategy - Babylon.js/Three.js
-- [ ] 009: API Layer - FastAPI for remote calculation
+- [ ] 010: Integration - End-to-end workflow (UI -> API -> Engine)
 
 ## 🕒 Recent History
+- [x] 008: Visualization - JSON Export & HTML Prototype
 - [x] 007: Level 2 Engine - Genetic Algorithm
 - [x] 006: Level 2 Engine - Numba Acceleration (16x Speedup)
 - [x] 005: Level 1 Engine - Best-Fit Decreasing

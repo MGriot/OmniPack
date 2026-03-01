@@ -34,6 +34,16 @@ class Item:
     def volume(self) -> float:
         return self.width * self.height * self.depth
 
+    def to_dict(self):
+        w, h, d = self.get_dimension()
+        return {
+            "id": self.id,
+            "position": {"x": self.position[0], "y": self.position[1], "z": self.position[2]},
+            "dimensions": {"w": w, "h": h, "d": d},
+            "original_dim": {"w": self.width, "h": self.height, "d": self.depth},
+            "rotation": self.rotation.name
+        }
+
 @dataclass
 class Container:
     id: str
@@ -49,3 +59,11 @@ class Container:
     def remaining_volume(self) -> float:
         used_volume = sum(item.volume() for item in self.items)
         return self.volume() - used_volume
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "dimensions": {"w": self.width, "h": self.height, "d": self.depth},
+            "items": [item.to_dict() for item in self.items],
+            "utilization": (1.0 - (self.remaining_volume() / self.volume())) * 100
+        }

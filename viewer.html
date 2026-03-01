@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OmniPack 3D Viewer</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        body, html { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        #renderCanvas { width: 100%; height: 100%; }
+        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); color: white; padding: 10px; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h3>OmniPack Visualizer</h3>
+        <div id="stats">Load a result JSON</div>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+
+        const createScene = function (data) {
+            const scene = new BABYLON.Scene(engine);
+            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 150, new BABYLON.Vector3(50, 25, 50), scene);
+            camera.attachControl(canvas, true);
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
+
+            if (!data) return scene;
+
+            // Container Wireframe
+            const container = BABYLON.MeshBuilder.CreateBox("container", {
+                width: data.dimensions.w,
+                height: data.dimensions.h,
+                depth: data.dimensions.d
+            }, scene);
+            container.position = new BABYLON.Vector3(data.dimensions.w/2, data.dimensions.h/2, data.dimensions.d/2);
+            container.material = new BABYLON.StandardMaterial("contMat", scene);
+            container.material.wireframe = true;
+            container.material.alpha = 0.3;
+
+            // Items
+            data.items.forEach((item, index) => {
+                const box = BABYLON.MeshBuilder.CreateBox(item.id, {
+                    width: item.dimensions.w,
+                    height: item.dimensions.h,
+                    depth: item.dimensions.d
+                }, scene);
+                
+                // Position in Babylon is center-based, OmniPack is corner-based
+                box.position.x = item.position.x + item.dimensions.w / 2;
+                box.position.y = item.position.y + item.dimensions.h / 2;
+                box.position.z = item.position.z + item.dimensions.d / 2;
+
+                box.material = new BABYLON.StandardMaterial("mat" + index, scene);
+                box.material.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+                box.material.alpha = 0.8;
+            });
+
+            document.getElementById("stats").innerHTML = `
+                Container: ${data.id}<br>
+                Items: ${data.items.length}<br>
+                Utilization: ${data.utilization.toFixed(2)}%
+            `;
+
+            return scene;
+        };
+
+        // Example trigger: Fetch data from a local file or variable
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'LOAD_DATA') {
+                const scene = createScene(event.data.payload);
+                engine.runRenderLoop(() => scene.render());
+            }
+        });
+
+        const scene = createScene();
+        engine.runRenderLoop(() => scene.render());
+        window.addEventListener("resize", () => engine.resize());
+    </script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+{
+    "id": "Standard_40ft",
+    "dimensions": {
+        "w": 100,
+        "h": 50,
+        "d": 50
+    },
+    "items": [
+        {
+            "id": "Box_0",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_1",
+            "position": {
+                "x": 20,
+                "y": 0,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_2",
+            "position": {
+                "x": 40,
+                "y": 0,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_3",
+            "position": {
+                "x": 60,
+                "y": 0,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_4",
+            "position": {
+                "x": 80,
+                "y": 0,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_5",
+            "position": {
+                "x": 0,
+                "y": 20,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_6",
+            "position": {
+                "x": 20,
+                "y": 20,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_7",
+            "position": {
+                "x": 40,
+                "y": 20,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_8",
+            "position": {
+                "x": 60,
+                "y": 20,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Box_9",
+            "position": {
+                "x": 80,
+                "y": 20,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 20,
+                "h": 20,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Flat_0",
+            "position": {
+                "x": 0,
+                "y": 40,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Flat_1",
+            "position": {
+                "x": 40,
+                "y": 40,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Flat_2",
+            "position": {
+                "x": 80,
+                "y": 40,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 20,
+                "h": 5,
+                "d": 40
+            },
+            "original_dim": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "rotation": "D_H_W"
+        },
+        {
+            "id": "Flat_3",
+            "position": {
+                "x": 0,
+                "y": 45,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        },
+        {
+            "id": "Flat_4",
+            "position": {
+                "x": 40,
+                "y": 45,
+                "z": 0
+            },
+            "dimensions": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "original_dim": {
+                "w": 40,
+                "h": 5,
+                "d": 20
+            },
+            "rotation": "W_H_D"
+        }
+    ],
+    "utilization": 40.0
+}
