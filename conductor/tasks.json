@@ -34,6 +34,20 @@
       "status": "done",
       "verification_method": "Packing benchmark (Level 1)",
       "description": "Implement the core heuristic for Level 1 engine."
+    },
+    {
+      "id": "006",
+      "title": "Level 2 Engine - Numba Acceleration",
+      "status": "done",
+      "verification_method": "Benchmark script comparing Level 1 vs Level 2",
+      "description": "Implement JIT-accelerated collision detection and parallel testing of rotations."
+    },
+    {
+      "id": "007",
+      "title": "Level 2 Engine - Genetic Algorithm",
+      "status": "todo",
+      "verification_method": "Optimization test (Higher volume utilization)",
+      "description": "Implement a parallel genetic algorithm to evolve packing sequences."
     }
   ]
 }
