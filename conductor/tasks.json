@@ -17,7 +17,7 @@
     {
       "id": "003",
       "title": "Level 1 Engine - Core Models",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Unit tests for Item and Container models",
       "description": "Define basic 3D entities (Box, Container, Rotation) in Python."
     },
