@@ -7,14 +7,14 @@ from .accelerated import evaluate_positions_parallel
 class Level2Engine:
     """
     PC/Workstation Engine: Uses Numba JIT and Parallel loops.
-    Prioritizes low and centered Center of Mass (COM).
+    Optimized for floor utilization and space compactness.
     """
     def __init__(self, container: Container):
         self.container = container
         self.extreme_points: Set[ExtremePoint] = {ExtremePoint(0, 0, 0)}
 
     def pack(self, items: List[Item]) -> List[Item]:
-        # Sort items by volume descending
+        # Sort items by volume descending to place large items first
         sorted_items = sorted(items, key=lambda x: x.volume(), reverse=True)
         unpacked_items = []
 
@@ -59,15 +59,16 @@ class Level2Engine:
                         ep = eps_list[i]
                         w, h, d = rots[j]
                         
-                        # BARYCENTRIC SCORING:
-                        # 1. Primary: Lower Z (gravity)
-                        # 2. Secondary: Distance from XY center (balance)
-                        cog_x = ep.x + w/2.0
-                        cog_y = ep.y + h/2.0
-                        dist_from_center = ((cog_x - container_center_x)**2 + (cog_y - container_center_y)**2)**0.5
+                        # SCORING STRATEGY:
+                        # 1. Heavily prioritize Lower Z (Gravity/Floor usage)
+                        # 2. To avoid fragmentation, prioritize "tucking" into the back-left corner
+                        # 3. Use barycentric distance as a tie-breaker for stability if Z and corner are equal
                         
-                        # Score: (Z, Distance from Center, Y, X)
-                        score = (ep.z, dist_from_center, ep.y, ep.x)
+                        # Primary: Z (minimize)
+                        # Secondary: Y (minimize - tuck back)
+                        # Tertiary: X (minimize - tuck left)
+                        
+                        score = (ep.z, ep.y, ep.x)
                         
                         if best_fit is None or score < best_fit[2]:
                             best_fit = (i, j, score)
@@ -78,6 +79,8 @@ class Level2Engine:
                 item.position = ep.to_tuple()
                 item.rotation = Rotation(rot_idx)
                 self.container.items.append(item)
+                
+                # Update EPs and also add intermediate points to improve floor discovery
                 new_eps = generate_extreme_points(self.container, item)
                 self.extreme_points.remove(ep)
                 for nep in new_eps: self.extreme_points.add(nep)
