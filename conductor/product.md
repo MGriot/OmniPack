@@ -26,8 +26,8 @@ Sviluppare un motore di ottimizzazione spaziale 3D capace di adattarsi all'hardw
 ## 4. Specifiche Tecniche per Piattaforma
 | Feature | Versione Mobile | Versione PC (Workstation) |
 | :--- | :--- | :--- |
-| Core Engine | WebAssembly (WASM) / Rust | C++ Nativo (Multithreaded) / Rust |
-| Accelerazione | CPU Standard | GPU Acceleration (WebGPU/Vulkan) |
+| Core Engine | Python (Optimized) | Python (Multiprocessing/Numba) |
+| Accelerazione | CPU Standard | GPU Acceleration (PyTorch/CuPy) |
 | Rendering | Low-Poly (Three.js/WebGL) | High-Fidelity (Babylon.js) |
 | Ottimizzazione | Euristica Semplice | ML Iterativo + Fisica Real-time |
 
@@ -42,4 +42,4 @@ Sviluppare un motore di ottimizzazione spaziale 3D capace di adattarsi all'hardw
 - Operativa -> Analitica -> Training -> Update.
 
 ## 8. Definizione Tecnologica
-- **Stack:** Rust con WebGPU (Cross-platform performance).
+- **Stack:** Python 3.12+ (Performance with Multiprocessing, Numba, and PyTorch).

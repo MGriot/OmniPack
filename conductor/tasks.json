@@ -10,16 +10,16 @@
     {
       "id": "002",
       "title": "Core Engine - Workspace Setup",
-      "status": "todo",
-      "verification_method": "Run 'cargo test' in core directory",
-      "description": "Create Rust workspace and basic engine library."
+      "status": "done",
+      "verification_method": "Run 'pytest' in core directory",
+      "description": "Create Python project structure and basic engine module."
     },
     {
       "id": "003",
       "title": "Level 1 Engine - Core Models",
       "status": "todo",
       "verification_method": "Unit tests for Item and Container models",
-      "description": "Define basic 3D entities (Box, Container, Rotation)."
+      "description": "Define basic 3D entities (Box, Container, Rotation) in Python."
     },
     {
       "id": "004",
@@ -34,13 +34,6 @@
       "status": "todo",
       "verification_method": "Packing benchmark (Level 1)",
       "description": "Implement the core heuristic for Level 1 engine."
-    },
-    {
-      "id": "006",
-      "title": "WASM Bridge",
-      "status": "todo",
-      "verification_method": "wasm-pack build succeeds",
-      "description": "Configure wasm-bindgen for mobile/web execution."
     }
   ]
 }
