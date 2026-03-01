@@ -13,54 +13,37 @@ def get_overlap_area(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
 
 @njit(cache=True)
 def is_point_in_rect(px, py, rx1, ry1, rx2, ry2):
-    # Small epsilon for float precision
     return (rx1 - 0.001) <= px <= (rx2 + 0.001) and (ry1 - 0.001) <= py <= (ry2 + 0.001)
 
 @njit(cache=True)
 def calculate_cumulative_loads(existing_pos, existing_dim, existing_weights):
-    """
-    Physics-accurate load propagation.
-    Ensures 100% of the weight of an upper item is transferred to the items 
-    immediately supporting it, distributed by contact area.
-    """
     n = len(existing_pos)
-    # Start with the intrinsic weight of each item
     total_loads = np.copy(existing_weights)
     if n == 0: return total_loads
-
-    # Propagation must happen from top to bottom (Z descending)
     z_coords = existing_pos[:, 2]
     indices = np.argsort(z_coords)[::-1]
-
     for i in range(n):
         curr_idx = indices[i]
         jx, jy, jz = existing_pos[curr_idx]
         jw, jh, jd = existing_dim[curr_idx]
-        
-        # Find direct supports (items whose top matches our bottom)
         supports = []
         areas = []
         total_contact = 0.0
-        
         for k in range(n):
             if k == curr_idx: continue
             kx, ky, kz = existing_pos[k]
             kw, kh, kd = existing_dim[k]
-            
             if abs((kz + kd) - jz) < 0.001:
                 area = get_overlap_area(jx, jy, jx + jw, jy + jh, kx, ky, kx + kw, ky + kh)
                 if area > 0:
                     supports.append(k)
                     areas.append(area)
                     total_contact += area
-        
-        # Transfer 100% of the CURRENT total load of item J (its weight + what's on it)
         if total_contact > 0:
             for m in range(len(supports)):
                 support_idx = supports[m]
                 ratio = areas[m] / total_contact
                 total_loads[support_idx] += total_loads[curr_idx] * ratio
-                
     return total_loads
 
 @njit(parallel=True, cache=True)
@@ -69,78 +52,95 @@ def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, exis
     num_rots = len(item_dims)
     cw, ch, cd = container_dim
     results = np.zeros((num_eps, num_rots), dtype=np.bool_)
-    
     n_existing = len(existing_pos)
-    # Pre-calculate loads of the current stable state
     current_loads = calculate_cumulative_loads(existing_pos, existing_dim, existing_weights)
+
+    # Pre-check: Is there ANY valid spot on the floor (Z=0)?
+    # We must do this to enforce "Floor-First" logic.
+    any_floor_valid = False
+    floor_valid_mask = np.zeros((num_eps, num_rots), dtype=np.bool_)
 
     for i in prange(num_eps):
         ex, ey, ez = eps[i]
+        # Only check floor EPs in this pass
+        if ez < 0.001:
+            for j in range(num_rots):
+                iw, ih, id_ = item_dims[j]
+                if (ex + iw <= cw and ey + ih <= ch and ez + id_ <= cd):
+                    collision = False
+                    for k in range(n_existing):
+                        ox, oy, oz = existing_pos[k]
+                        ow, oh, od = existing_dim[k]
+                        if (ex < ox + ow - 0.001 and ex + iw > ox + 0.001 and
+                            ey < oy + oh - 0.001 and ey + ih > oy + 0.001 and
+                            ez < oz + od - 0.001 and ez + id_ > oz + 0.001):
+                            collision = True
+                            break
+                    if not collision:
+                        floor_valid_mask[i, j] = True
+                        # Using an atomic-like check for parallel safety
+                        # (Not strictly necessary for bool but good practice)
+    
+    # Check if we found floor spots
+    for i in range(num_eps):
         for j in range(num_rots):
-            iw, ih, id_ = item_dims[j]
+            if floor_valid_mask[i, j]:
+                any_floor_valid = True
+                break
+        if any_floor_valid: break
+
+    # Final Pass
+    for i in prange(num_eps):
+        ex, ey, ez = eps[i]
+        for j in range(num_rots):
+            # RULE: If ANY floor spot exists, we block all stacking spots for this item.
+            if any_floor_valid and ez >= 0.001:
+                results[i, j] = False
+                continue
             
-            # 1. Boundary & Overlap check
+            # Standard logic for the rest
+            iw, ih, id_ = item_dims[j]
             if (ex + iw <= cw and ey + ih <= ch and ez + id_ <= cd):
                 collision = False
                 for k in range(n_existing):
                     ox, oy, oz = existing_pos[k]
                     ow, oh, od = existing_dim[k]
-                    if (ex < ox + ow and ex + iw > ox and
-                        ey < oy + oh and ey + ih > oy and
-                        ez < oz + od and ez + id_ > oz):
+                    if (ex < ox + ow - 0.001 and ex + iw > ox + 0.001 and
+                        ey < oy + oh - 0.001 and ey + ih > oy + 0.001 and
+                        ez < oz + od - 0.001 and ez + id_ > oz + 0.001):
                         collision = True
                         break
                 if collision: continue
 
-                # 2. Physics: Floor check
                 if ez < 0.001:
                     results[i, j] = True
-                    continue
-
-                # 3. Physics: Support & Center of Gravity (Barycentric Rules)
-                cog_x = ex + iw / 2.0
-                cog_y = ey + ih / 2.0
-                
-                total_support_area = 0.0
-                is_cog_supported = False
-                support_indices = []
-                support_overlaps = []
-                
-                for k in range(n_existing):
-                    ox, oy, oz = existing_pos[k]
-                    ow, oh, od = existing_dim[k]
+                else:
+                    # Physics check for stacked items
+                    cog_x, cog_y = ex + iw/2.0, ey + ih/2.0
+                    total_support_area = 0.0
+                    is_cog_supported = False
+                    support_indices, support_overlaps = [], []
+                    for k in range(n_existing):
+                        ox, oy, oz = existing_pos[k]
+                        ow, oh, od = existing_dim[k]
+                        if abs(ez - (oz + od)) < 0.001:
+                            area = get_overlap_area(ex, ey, ex + iw, ey + ih, ox, oy, ox + ow, oy + oh)
+                            if area > 0:
+                                total_support_area += area
+                                support_indices.append(k)
+                                support_overlaps.append(area)
+                                if is_point_in_rect(cog_x, cog_y, ox, oy, ox + ow, oy + oh):
+                                    is_cog_supported = True
                     
-                    if abs(ez - (oz + od)) < 0.001:
-                        area = get_overlap_area(ex, ey, ex + iw, ey + ih, ox, oy, ox + ow, oy + oh)
-                        if area > 0:
-                            total_support_area += area
-                            support_indices.append(k)
-                            support_overlaps.append(area)
-                            # Barycentric rule: CoG projection must be within the supporting item's footprint
-                            if is_point_in_rect(cog_x, cog_y, ox, oy, ox + ow, oy + oh):
-                                is_cog_supported = True
-
-                # Item must be balanced (CoG supported)
-                if not is_cog_supported:
-                    continue
-                
-                # 4. Physics: Structural Load Propagation
-                # Check if the NEW item crushes ANY item in the chain below it
-                can_sustain = True
-                for m in range(len(support_indices)):
-                    idx_k = support_indices[m]
-                    area_k = support_overlaps[m]
+                    if not is_cog_supported: continue
                     
-                    # Fraction of 100% of the new item's weight
-                    added_load = item_weight * (area_k / total_support_area)
-                    
-                    # The item idx_k is already sustaining (current_loads[idx_k] - existing_weights[idx_k])
-                    # If we add our portion, does it exceed idx_k's capacity?
-                    if (current_loads[idx_k] - existing_weights[idx_k] + added_load) > existing_max_weights[idx_k]:
-                        can_sustain = False
-                        break
-                
-                if can_sustain:
-                    results[i, j] = True
-
+                    can_sustain = True
+                    for m in range(len(support_indices)):
+                        idx_k = support_indices[m]
+                        added_load = item_weight * (support_overlaps[m] / total_support_area)
+                        if (current_loads[idx_k] - existing_weights[idx_k] + added_load) > existing_max_weights[idx_k]:
+                            can_sustain = False
+                            break
+                    if can_sustain:
+                        results[i, j] = True
     return results

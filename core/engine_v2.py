@@ -2,6 +2,7 @@ import numpy as np
 from typing import List, Tuple, Set
 from .models import Item, Container, Rotation
 from .ep import ExtremePoint, generate_extreme_points, get_valid_ep
+from .accelerated import evaluate_positions_parallel
 
 class Level2Engine:
     """
