@@ -1,71 +1,61 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 from .models import Item, Container
+from .engine import Level1Engine
 from .engine_v2 import Level2Engine
+from .genetic import GeneticOptimizer
 import copy
 
 class MultiContainerEngine:
-    """
-    Handles packing into multiple containers if items don't fit in the first one.
-    Strategies:
-    - 'minimize_out': Maximize items in the first container, then use a second for the rest.
-    - 'optimal_balance': Balance items between containers to minimize 'criticity' (overflow).
-    """
     def __init__(self, base_container: Container):
         self.base_container = base_container
 
-    def pack_all(self, items: List[Item], strategy: str = "minimize_out") -> List[Container]:
+    def _get_engine(self, container: Container, mode: str):
+        if mode == "level1":
+            return Level1Engine(container)
+        return Level2Engine(container)
+
+    def pack_all(self, items: List[Item], strategy: str = "minimize_out", mode: str = "level2") -> List[Container]:
         containers = []
         remaining_items = copy.deepcopy(items)
         
-        # 1. Fill the first (primary) container
+        # 1. Primary Container
         c1 = Container(
             self.base_container.id + "_Primary",
             self.base_container.width,
             self.base_container.height,
             self.base_container.depth
         )
-        engine1 = Level2Engine(c1)
-        unpacked_after_c1 = engine1.pack(remaining_items)
-        containers.append(c1)
         
-        if not unpacked_after_c1:
+        if mode == "genetic":
+            optimizer = GeneticOptimizer(c1, remaining_items, population_size=10, generations=5)
+            packed, _ = optimizer.evolve()
+            c1.items = packed
+            # Find what wasn't packed
+            packed_ids = {it.id for it in packed}
+            unpacked = [it for it in remaining_items if it.id not in packed_ids]
+        else:
+            engine = self._get_engine(c1, mode)
+            unpacked = engine.pack(remaining_items)
+        
+        containers.append(c1)
+        if not unpacked:
             return containers
 
-        # 2. Strategy Logic for the overflow
+        # 2. Strategy Logic for overflow
         if strategy == "minimize_out":
-            # Just pack what's left into a second container of the same size
-            c2 = Container(
-                self.base_container.id + "_Overflow",
-                self.base_container.width,
-                self.base_container.height,
-                self.base_container.depth
-            )
-            engine2 = Level2Engine(c2)
-            engine2.pack(unpacked_after_c1)
+            c2 = Container(self.base_container.id + "_Overflow", self.base_container.width, self.base_container.height, self.base_container.depth)
+            engine2 = self._get_engine(c2, mode)
+            engine2.pack(unpacked)
             containers.append(c2)
             
         elif strategy == "optimal_balance":
-            # Suggest a specific space size for the remaining items 
-            # to minimize unused volume in the second container
-            max_w = max((i.width for i in unpacked_after_c1), default=0)
-            max_h = max((i.height for i in unpacked_after_c1), default=0)
-            max_d = max((i.depth for i in unpacked_after_c1), default=0)
+            max_w = max((i.width for i in unpacked), default=self.base_container.width)
+            total_vol = sum(i.volume() for i in unpacked)
+            suggested_h = max(max((i.height for i in unpacked), default=0), total_vol / (max_w * self.base_container.depth))
             
-            # Simple heuristic for suggested secondary space:
-            # Fit to the bounding box of remaining items or volume-based
-            total_vol_needed = sum(i.volume() for i in unpacked_after_c1)
-            suggested_w = max(max_w, self.base_container.width)
-            suggested_h = max(max_h, total_vol_needed / (suggested_w * self.base_container.depth))
-            suggested_d = self.base_container.depth
-            
-            c2 = Container(
-                "Suggested_Secondary_Space",
-                suggested_w,
-                suggested_h,
-                suggested_d
-            )
-            engine2 = Level2Engine(c2)
-            engine2.pack(unpacked_after_c1)
+            c2 = Container("Suggested_Space", max_w, suggested_h, self.base_container.depth)
+            engine2 = self._get_engine(c2, mode)
+            engine2.pack(unpacked)
             containers.append(c2)
 
         return containers

@@ -1,14 +1,15 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Wait** - Weight & Stacking Constraints Implemented (Verified)
+**Wait** - Advanced Physics (Stability & Force Transfer) Implemented
 
 ## 📋 Backlog
 - [ ] 012: PDF/CAD Export logic
-- [ ] 013: 3D Physics - Center of Gravity check
+- [ ] 013: Final Integration Test (Heavy Load Scenario)
 
 ## 🕒 Recent History
-- [x] 011: Weight & Stacking Constraints
+- [x] 011b: Real Physics - Stability & Force Transfer
+- [x] 011a: Weight & Stacking Constraints
 - [x] 010: Multi-Container & Strategy Logic
 - [x] 009: API Layer - FastAPI
 - [x] 008: Visualization - JSON Export & HTML Prototype

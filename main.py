@@ -50,9 +50,9 @@ async def pack_items_api(request: PackingRequest):
         Item(i.id, i.width, i.height, i.depth, weight=i.weight, max_stack_weight=i.max_stack_weight) for i in request.items
     ]
 
-    # Handle multi-container logic
+    # Handle multi-container logic with requested engine mode
     multi_engine = MultiContainerEngine(container)
-    containers = multi_engine.pack_all(items, strategy=request.strategy)
+    containers = multi_engine.pack_all(items, strategy=request.strategy, mode=request.mode)
 
     return {
         "containers": [c.to_dict() for c in containers],
