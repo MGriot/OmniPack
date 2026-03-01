@@ -1,80 +1,228 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OmniPack 3D Viewer</title>
+    <title>OmniPack 3D Pro - Multi-Container</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         body, html { width: 100%; height: 100%; margin: 0; overflow: hidden; }
         #renderCanvas { width: 100%; height: 100%; }
-        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); color: white; padding: 10px; font-family: sans-serif; }
+        #ui { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            background: rgba(0,0,0,0.9); 
+            color: white; 
+            padding: 20px; 
+            font-family: 'Segoe UI', sans-serif; 
+            border-radius: 12px;
+            width: 320px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        .section { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        label { display: block; font-size: 0.85em; margin-bottom: 4px; color: #aaa; }
+        input, select { 
+            width: 100%; 
+            padding: 8px; 
+            margin-bottom: 10px; 
+            background: #222; 
+            border: 1px solid #444; 
+            color: white; 
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .row { display: flex; gap: 5px; }
+        .row input { flex: 1; }
+        button { 
+            width: 100%; 
+            padding: 12px; 
+            cursor: pointer; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 6px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0056b3; }
+        button.add { background: #6c757d; padding: 5px; margin-bottom: 15px; font-size: 0.8em; }
+        .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 5px; border-radius: 4px; position: relative; }
+        .remove-btn { position: absolute; right: 5px; top: 5px; color: #ff4d4d; cursor: pointer; font-weight: bold; }
+        #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; }
+        #container-switcher { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 20px; color: white; display: none; gap: 10px; align-items: center; }
+        .nav-btn { background: #444; border: none; color: white; padding: 5px 15px; border-radius: 15px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h3>OmniPack Visualizer</h3>
-        <div id="stats">Load a result JSON</div>
+        <h2 style="margin-top:0; color: #007bff;">OmniPack 3D Pro</h2>
+        
+        <div class="section">
+            <label>Primary Space (W x H x D)</label>
+            <div class="row">
+                <input type="number" id="cW" value="100">
+                <input type="number" id="cH" value="50">
+                <input type="number" id="cD" value="50">
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Items to Pack</label>
+            <div id="items-list">
+                <div class="item-row" id="item-0">
+                    <span class="remove-btn" onclick="removeItem(0)">×</span>
+                    <label>Item Type 1 (W x H x D)</label>
+                    <div class="row">
+                        <input type="number" class="iW" value="30">
+                        <input type="number" class="iH" value="30">
+                        <input type="number" class="iD" value="30">
+                    </div>
+                    <label>Quantity</label>
+                    <input type="number" class="iQ" value="10">
+                </div>
+            </div>
+            <button class="add" onclick="addItem()">+ Add Item Type</button>
+        </div>
+
+        <div class="section">
+            <label>Optimization Strategy</label>
+            <select id="strategy">
+                <option value="minimize_out">Minimize Items Out (Fill Primary First)</option>
+                <option value="optimal_balance">Suggest Additional Space (Minimize Criticity)</option>
+            </select>
+            <label>Engine</label>
+            <select id="mode">
+                <option value="level2">Accelerated Multi-Core</option>
+                <option value="level1">Standard Legacy</option>
+            </select>
+            <button onclick="runPacking()">START OPTIMIZATION</button>
+        </div>
+        
+        <div id="stats">Status: Ready</div>
     </div>
+
+    <div id="container-switcher">
+        <button class="nav-btn" onclick="prevContainer()">&lt; Prev</button>
+        <span id="container-info">Container 1 of 1</span>
+        <button class="nav-btn" onclick="nextContainer()">Next &gt;</button>
+    </div>
+
     <canvas id="renderCanvas"></canvas>
+
     <script>
+        let itemCounter = 1;
         const canvas = document.getElementById("renderCanvas");
         const engine = new BABYLON.Engine(canvas, true);
+        let currentScene = null;
+        let packedContainers = [];
+        let activeContainerIdx = 0;
 
-        const createScene = function (data) {
-            const scene = new BABYLON.Scene(engine);
-            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 150, new BABYLON.Vector3(50, 25, 50), scene);
-            camera.attachControl(canvas, true);
-            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
-
-            if (!data) return scene;
-
-            // Container Wireframe
-            const container = BABYLON.MeshBuilder.CreateBox("container", {
-                width: data.dimensions.w,
-                height: data.dimensions.h,
-                depth: data.dimensions.d
-            }, scene);
-            container.position = new BABYLON.Vector3(data.dimensions.w/2, data.dimensions.h/2, data.dimensions.d/2);
-            container.material = new BABYLON.StandardMaterial("contMat", scene);
-            container.material.wireframe = true;
-            container.material.alpha = 0.3;
-
-            // Items
-            data.items.forEach((item, index) => {
-                const box = BABYLON.MeshBuilder.CreateBox(item.id, {
-                    width: item.dimensions.w,
-                    height: item.dimensions.h,
-                    depth: item.dimensions.d
-                }, scene);
-                
-                // Position in Babylon is center-based, OmniPack is corner-based
-                box.position.x = item.position.x + item.dimensions.w / 2;
-                box.position.y = item.position.y + item.dimensions.h / 2;
-                box.position.z = item.position.z + item.dimensions.d / 2;
-
-                box.material = new BABYLON.StandardMaterial("mat" + index, scene);
-                box.material.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
-                box.material.alpha = 0.8;
-            });
-
-            document.getElementById("stats").innerHTML = `
-                Container: ${data.id}<br>
-                Items: ${data.items.length}<br>
-                Utilization: ${data.utilization.toFixed(2)}%
+        function addItem() {
+            const list = document.getElementById("items-list");
+            const div = document.createElement("div");
+            div.className = "item-row";
+            div.id = `item-${itemCounter}`;
+            div.innerHTML = `
+                <span class="remove-btn" onclick="removeItem(${itemCounter})">×</span>
+                <label>Item Type ${itemCounter + 1}</label>
+                <div class="row">
+                    <input type="number" class="iW" value="20">
+                    <input type="number" class="iH" value="20">
+                    <input type="number" class="iD" value="20">
+                </div>
+                <label>Quantity</label>
+                <input type="number" class="iQ" value="5">
             `;
+            list.appendChild(div);
+            itemCounter++;
+        }
+
+        function removeItem(id) { document.getElementById(`item-${id}`).remove(); }
+
+        const createScene = function (containerData) {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.05, 1);
+            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 200, new BABYLON.Vector3(0,0,0), scene);
+            camera.attachControl(canvas, true);
+            new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
+
+            if (!containerData) return scene;
+
+            const { dimensions, items } = containerData;
+            camera.setTarget(new BABYLON.Vector3(dimensions.w/2, dimensions.h/2, dimensions.d/2));
+            camera.radius = Math.max(dimensions.w, dimensions.h, dimensions.d) * 2.5;
+
+            const box = BABYLON.MeshBuilder.CreateBox("cont", { width: dimensions.w, height: dimensions.h, depth: dimensions.d }, scene);
+            box.position = new BABYLON.Vector3(dimensions.w/2, dimensions.h/2, dimensions.d/2);
+            box.material = new BABYLON.StandardMaterial("m", scene);
+            box.material.wireframe = true;
+            box.material.alpha = 0.2;
+
+            items.forEach((item, i) => {
+                const iBox = BABYLON.MeshBuilder.CreateBox(item.id, { width: item.dimensions.w, height: item.dimensions.h, depth: item.dimensions.d }, scene);
+                iBox.position = new BABYLON.Vector3(item.position.x + item.dimensions.w/2, item.position.y + item.dimensions.h/2, item.position.z + item.dimensions.d/2);
+                iBox.material = new BABYLON.StandardMaterial("im"+i, scene);
+                iBox.material.diffuseColor = BABYLON.Color3.FromHSV((i * 137.5) % 360, 0.6, 0.8);
+            });
 
             return scene;
         };
 
-        // Example trigger: Fetch data from a local file or variable
-        window.addEventListener('message', (event) => {
-            if (event.data.type === 'LOAD_DATA') {
-                const scene = createScene(event.data.payload);
-                engine.runRenderLoop(() => scene.render());
+        function updateView() {
+            if (packedContainers.length > 0) {
+                if (currentScene) currentScene.dispose();
+                currentScene = createScene(packedContainers[activeContainerIdx]);
+                document.getElementById("container-info").innerText = `View: ${packedContainers[activeContainerIdx].id} (${activeContainerIdx + 1}/${packedContainers.length})`;
+                engine.runRenderLoop(() => currentScene.render());
             }
-        });
+        }
 
-        const scene = createScene();
-        engine.runRenderLoop(() => scene.render());
+        function nextContainer() { activeContainerIdx = (activeContainerIdx + 1) % packedContainers.length; updateView(); }
+        function prevContainer() { activeContainerIdx = (activeContainerIdx - 1 + packedContainers.length) % packedContainers.length; updateView(); }
+
+        async function runPacking() {
+            const stats = document.getElementById("stats");
+            stats.innerHTML = "Status: 🔵 Optimizing...";
+            
+            const itemInputs = document.querySelectorAll(".item-row");
+            const items = [];
+            itemInputs.forEach((row, idx) => {
+                const w = parseFloat(row.querySelector(".iW").value);
+                const h = parseFloat(row.querySelector(".iH").value);
+                const d = parseFloat(row.querySelector(".iD").value);
+                const q = parseInt(row.querySelector(".iQ").value);
+                for(let i=0; i<q; i++) items.push({ id: `it_${idx}_${i}`, width: w, height: h, depth: d });
+            });
+
+            const payload = {
+                container: { id: "Primary", width: parseFloat(document.getElementById("cW").value), height: parseFloat(document.getElementById("cH").value), depth: parseFloat(document.getElementById("cD").value) },
+                items: items,
+                mode: document.getElementById("mode").value,
+                strategy: document.getElementById("strategy").value
+            };
+
+            try {
+                const response = await fetch("http://127.0.0.1:8000/pack", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                packedContainers = result.containers;
+                activeContainerIdx = 0;
+                
+                document.getElementById("container-switcher").style.display = packedContainers.length > 1 ? "flex" : "none";
+                updateView();
+                
+                stats.innerHTML = `<span style='color:#28a745'><b>DONE</b><br>Total Containers: ${result.total_containers}</span>`;
+            } catch (err) {
+                stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>";
+            }
+        }
+
+        currentScene = createScene();
+        engine.runRenderLoop(() => currentScene.render());
         window.addEventListener("resize", () => engine.resize());
     </script>
 </body>

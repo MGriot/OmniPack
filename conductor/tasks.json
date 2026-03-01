@@ -62,6 +62,13 @@
       "status": "done",
       "verification_method": "Endpoint test with client request",
       "description": "Implement FastAPI endpoints for packing requests."
+    },
+    {
+      "id": "010",
+      "title": "Multi-Container & Strategy Logic",
+      "status": "in_progress",
+      "verification_method": "API test with overflowing items returning multiple container suggestions",
+      "description": "Implement logic to handle overflow by suggesting additional containers and prioritizing displacement."
     }
   ]
 }

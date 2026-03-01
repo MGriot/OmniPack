@@ -1,12 +1,22 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union
 from core.models import Item, Container
 from core.engine import Level1Engine
 from core.engine_v2 import Level2Engine
 from core.genetic import GeneticOptimizer
+from core.multi_container import MultiContainerEngine
 
 app = FastAPI(title="OmniPack API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ItemInput(BaseModel):
     id: str
@@ -24,10 +34,10 @@ class PackingRequest(BaseModel):
     container: ContainerInput
     items: List[ItemInput]
     mode: str = "level1" # "level1", "level2", "genetic"
+    strategy: str = "minimize_out" # "minimize_out", "optimal_balance"
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
-    # Convert input to internal models
     container = Container(
         request.container.id, 
         request.container.width, 
@@ -38,26 +48,13 @@ async def pack_items_api(request: PackingRequest):
         Item(i.id, i.width, i.height, i.depth) for i in request.items
     ]
 
-    if request.mode == "level1":
-        engine = Level1Engine(container)
-        unpacked = engine.pack(items)
-    elif request.mode == "level2":
-        engine = Level2Engine(container)
-        unpacked = engine.pack(items)
-    elif request.mode == "genetic":
-        optimizer = GeneticOptimizer(container, items, population_size=10, generations=5)
-        packed_items, fitness = optimizer.evolve()
-        # The optimizer already placed items in a container instance internally, 
-        # but for consistency with the API, we'll return the container.to_dict()
-        # Note: GeneticOptimizer.evolve() returns (packed_items, fitness)
-        # We need to ensure the container reflects these items.
-        container.items = packed_items
-    else:
-        raise HTTPException(status_code=400, detail="Invalid mode. Choose level1, level2, or genetic.")
+    # Handle multi-container logic
+    multi_engine = MultiContainerEngine(container)
+    containers = multi_engine.pack_all(items, strategy=request.strategy)
 
     return {
-        "container": container.to_dict(),
-        "unpacked_count": len(items) - len(container.items) if request.mode != "genetic" else "N/A (GA optimized)"
+        "containers": [c.to_dict() for c in containers],
+        "total_containers": len(containers)
     }
 
 @app.get("/")
