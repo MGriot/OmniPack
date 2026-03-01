@@ -45,7 +45,7 @@
     {
       "id": "007",
       "title": "Level 2 Engine - Genetic Algorithm",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Optimization test (Higher volume utilization)",
       "description": "Implement a parallel genetic algorithm to evolve packing sequences."
     }
