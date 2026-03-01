@@ -19,54 +19,96 @@ class ExtremePoint:
 
 def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoint]:
     """
-    Advanced Extreme Points generation.
-    When an item is placed, it creates new potential corners by projecting 
-    its boundaries until they hit another item or the container wall.
+    Enhanced EP Generation (Projected Extreme Points).
+    Instead of just 3 points, we discover all stable corners by projecting
+    item boundaries against existing geometry.
     """
     w, h, d = item.get_dimension()
     x, y, z = item.position
+    existing = container.items
     
-    # Standard corners
-    raw_pts = [
-        ExtremePoint(x + w, y, z),
-        ExtremePoint(x, y + h, z),
-        ExtremePoint(x, y, z + d)
+    # 1. Start with the 3 canonical points
+    potential_pts = [
+        [x + w, y, z],
+        [x, y + h, z],
+        [x, y, z + d]
     ]
     
-    # In a full EP implementation, we would project these points to all items.
-    # For Level 2, we ensure that points are correctly constrained by the container.
+    # 2. Project each point to find its "stablest" coordinate (nearest support)
+    # This prevents the drift where the engine ignores floor gaps.
+    final_pts = []
+    for p in potential_pts:
+        px, py, pz = p
+        
+        # Project PX: find highest x-bound below/beside it
+        max_x = 0.0
+        for other in existing:
+            ow, oh, od = other.get_dimension()
+            ox, oy, oz = other.position
+            # If 'other' is behind the point in X and overlaps in Y, Z
+            if ox + ow <= px and (oy < py + 0.001 and oy + oh > py - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
+                max_x = max(max_x, ox + ow)
+        
+        # Project PY
+        max_y = 0.0
+        for other in existing:
+            ow, oh, od = other.get_dimension()
+            ox, oy, oz = other.position
+            if oy + oh <= py and (ox < px + 0.001 and ox + ow > px - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
+                max_y = max(max_y, oy + oh)
+
+        # Project PZ
+        max_z = 0.0
+        for other in existing:
+            ow, oh, od = other.get_dimension()
+            ox, oy, oz = other.position
+            if oz + od <= pz and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
+                max_z = max(max_z, oz + od)
+
+        # Add the projected versions to ensure we find "tucked" spots
+        final_pts.append(ExtremePoint(px, py, pz))
+        if px > max_x: final_pts.append(ExtremePoint(max_x, py, pz))
+        if py > max_y: final_pts.append(ExtremePoint(px, max_y, pz))
+        if pz > max_z: final_pts.append(ExtremePoint(px, py, max_z))
+
+    # Filter out duplicates and points outside container
     valid_pts = []
-    for p in raw_pts:
-        if (p.x < container.width and 
-            p.y < container.height and 
-            p.z < container.depth):
+    seen = set()
+    for p in final_pts:
+        if p.x >= container.width or p.y >= container.height or p.z >= container.depth: continue
+        p_round = (round(p.x, 3), round(p.y, 3), round(p.z, 3))
+        if p_round not in seen:
             valid_pts.append(p)
+            seen.add(p_round)
             
     return valid_pts
 
 def get_valid_ep(container: Container, item: Item, eps: Set[ExtremePoint]) -> List[ExtremePoint]:
-    """Checks if the item fits at the given EPs without collision or exceeding boundaries."""
+    """Rigorous check for valid placement including collision and boundaries."""
     valid_eps = []
     w, h, d = item.get_dimension()
     
     for ep in eps:
-        if (ep.x + w <= container.width and 
-            ep.y + h <= container.height and 
-            ep.z + d <= container.depth):
+        # 1. Boundary check
+        if (ep.x + w > container.width + 0.001 or 
+            ep.y + h > container.height + 0.001 or 
+            ep.z + d > container.depth + 0.001):
+            continue
             
-            collision = False
-            for other in container.items:
-                ow, oh, od = other.get_dimension()
-                ox, oy, oz = other.position
-                
-                # AABB Collision with a small tolerance
-                if (ep.x < ox + ow - 0.001 and ep.x + w > ox + 0.001 and
-                    ep.y < oy + oh - 0.001 and ep.y + h > oy + 0.001 and
-                    ep.z < oz + od - 0.001 and ep.z + d > oz + 0.001):
-                    collision = True
-                    break
+        # 2. Collision check
+        collision = False
+        for other in container.items:
+            ow, oh, od = other.get_dimension()
+            ox, oy, oz = other.position
             
-            if not collision:
-                valid_eps.append(ep)
+            # AABB intersection with epsilon
+            if (ep.x < ox + ow - 0.001 and ep.x + w > ox + 0.001 and
+                ep.y < oy + oh - 0.001 and ep.y + h > oy + 0.001 and
+                ep.z < oz + od - 0.001 and ep.z + d > oz + 0.001):
+                collision = True
+                break
+        
+        if not collision:
+            valid_eps.append(ep)
                 
     return valid_eps
