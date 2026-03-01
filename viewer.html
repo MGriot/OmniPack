@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OmniPack 3D Pro - Multi-Container</title>
+    <title>OmniPack 3D Pro - Advanced Constraints</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         body, html { width: 100%; height: 100%; margin: 0; overflow: hidden; }
@@ -15,23 +15,24 @@
             padding: 20px; 
             font-family: 'Segoe UI', sans-serif; 
             border-radius: 12px;
-            width: 320px;
+            width: 340px;
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
             z-index: 10;
         }
         .section { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
-        label { display: block; font-size: 0.85em; margin-bottom: 4px; color: #aaa; }
+        label { display: block; font-size: 0.8em; margin-bottom: 2px; color: #aaa; }
         input, select { 
             width: 100%; 
-            padding: 8px; 
-            margin-bottom: 10px; 
+            padding: 6px; 
+            margin-bottom: 8px; 
             background: #222; 
             border: 1px solid #444; 
             color: white; 
             border-radius: 4px;
             box-sizing: border-box;
+            font-size: 0.9em;
         }
         .row { display: flex; gap: 5px; }
         .row input { flex: 1; }
@@ -48,9 +49,9 @@
         }
         button:hover { background: #0056b3; }
         button.add { background: #6c757d; padding: 5px; margin-bottom: 15px; font-size: 0.8em; }
-        .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 5px; border-radius: 4px; position: relative; }
+        .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 8px; border-radius: 6px; position: relative; border-left: 4px solid #007bff; }
         .remove-btn { position: absolute; right: 5px; top: 5px; color: #ff4d4d; cursor: pointer; font-weight: bold; }
-        #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; }
+        #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; line-height: 1.4; }
         #container-switcher { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 20px; color: white; display: none; gap: 10px; align-items: center; }
         .nav-btn { background: #444; border: none; color: white; padding: 5px 15px; border-radius: 15px; cursor: pointer; }
     </style>
@@ -69,18 +70,28 @@
         </div>
 
         <div class="section">
-            <label>Items to Pack</label>
+            <label>Items & Constraints</label>
             <div id="items-list">
                 <div class="item-row" id="item-0">
                     <span class="remove-btn" onclick="removeItem(0)">×</span>
-                    <label>Item Type 1 (W x H x D)</label>
+                    <label>Dimensions (W x H x D)</label>
                     <div class="row">
                         <input type="number" class="iW" value="30">
                         <input type="number" class="iH" value="30">
                         <input type="number" class="iD" value="30">
                     </div>
+                    <div class="row">
+                        <div style="flex:1">
+                            <label>Weight (kg)</label>
+                            <input type="number" class="iWeight" value="10">
+                        </div>
+                        <div style="flex:1">
+                            <label>Max Top (kg)</label>
+                            <input type="number" class="iMax" value="5">
+                        </div>
+                    </div>
                     <label>Quantity</label>
-                    <input type="number" class="iQ" value="10">
+                    <input type="number" class="iQ" value="5">
                 </div>
             </div>
             <button class="add" onclick="addItem()">+ Add Item Type</button>
@@ -89,8 +100,8 @@
         <div class="section">
             <label>Optimization Strategy</label>
             <select id="strategy">
-                <option value="minimize_out">Minimize Items Out (Fill Primary First)</option>
-                <option value="optimal_balance">Suggest Additional Space (Minimize Criticity)</option>
+                <option value="minimize_out">Minimize Items Out</option>
+                <option value="optimal_balance">Suggest Additional Space</option>
             </select>
             <label>Engine</label>
             <select id="mode">
@@ -126,14 +137,24 @@
             div.id = `item-${itemCounter}`;
             div.innerHTML = `
                 <span class="remove-btn" onclick="removeItem(${itemCounter})">×</span>
-                <label>Item Type ${itemCounter + 1}</label>
+                <label>Dimensions (W x H x D)</label>
                 <div class="row">
                     <input type="number" class="iW" value="20">
                     <input type="number" class="iH" value="20">
                     <input type="number" class="iD" value="20">
                 </div>
+                <div class="row">
+                    <div style="flex:1">
+                        <label>Weight (kg)</label>
+                        <input type="number" class="iWeight" value="5">
+                    </div>
+                    <div style="flex:1">
+                        <label>Max Top (kg)</label>
+                        <input type="number" class="iMax" value="50">
+                    </div>
+                </div>
                 <label>Quantity</label>
-                <input type="number" class="iQ" value="5">
+                <input type="number" class="iQ" value="1">
             `;
             list.appendChild(div);
             itemCounter++;
@@ -165,6 +186,9 @@
                 iBox.position = new BABYLON.Vector3(item.position.x + item.dimensions.w/2, item.position.y + item.dimensions.h/2, item.position.z + item.dimensions.d/2);
                 iBox.material = new BABYLON.StandardMaterial("im"+i, scene);
                 iBox.material.diffuseColor = BABYLON.Color3.FromHSV((i * 137.5) % 360, 0.6, 0.8);
+                
+                // Add a small visual indicator for heavy items or fragile ones
+                if (item.weight > 20) { iBox.material.emissiveColor = new BABYLON.Color3(0.2, 0, 0); }
             });
 
             return scene;
@@ -184,7 +208,7 @@
 
         async function runPacking() {
             const stats = document.getElementById("stats");
-            stats.innerHTML = "Status: 🔵 Optimizing...";
+            stats.innerHTML = "Status: 🔵 Optimizing Weight...";
             
             const itemInputs = document.querySelectorAll(".item-row");
             const items = [];
@@ -192,8 +216,17 @@
                 const w = parseFloat(row.querySelector(".iW").value);
                 const h = parseFloat(row.querySelector(".iH").value);
                 const d = parseFloat(row.querySelector(".iD").value);
+                const weight = parseFloat(row.querySelector(".iWeight").value);
+                const maxStack = parseFloat(row.querySelector(".iMax").value);
                 const q = parseInt(row.querySelector(".iQ").value);
-                for(let i=0; i<q; i++) items.push({ id: `it_${idx}_${i}`, width: w, height: h, depth: d });
+                for(let i=0; i<q; i++) {
+                    items.push({ 
+                        id: `it_${idx}_${i}`, 
+                        width: w, height: h, depth: d, 
+                        weight: weight, 
+                        max_stack_weight: maxStack 
+                    });
+                }
             });
 
             const payload = {
@@ -215,7 +248,10 @@
                 document.getElementById("container-switcher").style.display = packedContainers.length > 1 ? "flex" : "none";
                 updateView();
                 
-                stats.innerHTML = `<span style='color:#28a745'><b>DONE</b><br>Total Containers: ${result.total_containers}</span>`;
+                let totalWeight = 0;
+                packedContainers.forEach(c => c.items.forEach(i => totalWeight += i.weight));
+
+                stats.innerHTML = `<span style='color:#28a745'><b>COMPLETED</b><br>Containers: ${result.total_containers}<br>Total Packed Weight: ${totalWeight.toFixed(1)}kg</span>`;
             } catch (err) {
                 stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>";
             }

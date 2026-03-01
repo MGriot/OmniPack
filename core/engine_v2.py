@@ -7,6 +7,7 @@ from .accelerated import evaluate_positions_parallel
 class Level2Engine:
     """
     PC/Workstation Engine: Uses Numba JIT and Parallel loops to scale performance.
+    Now includes weight and stacking constraints.
     """
     def __init__(self, container: Container):
         self.container = container
@@ -33,11 +34,22 @@ class Level2Engine:
             # Existing items
             existing_pos = np.array([i.position for i in self.container.items], dtype=np.float64).reshape(-1, 3)
             existing_dim = np.array([i.get_dimension() for i in self.container.items], dtype=np.float64).reshape(-1, 3)
+            existing_weights = np.array([i.weight for i in self.container.items], dtype=np.float64)
+            existing_max_support = np.array([i.max_stack_weight for i in self.container.items], dtype=np.float64)
             
             container_dim = np.array([self.container.width, self.container.height, self.container.depth], dtype=np.float64)
 
-            # Parallel evaluation
-            valid_mask = evaluate_positions_parallel(eps_array, rots_array, existing_pos, existing_dim, container_dim)
+            # Parallel evaluation with weight support
+            valid_mask = evaluate_positions_parallel(
+                eps_array, 
+                rots_array, 
+                existing_pos, 
+                existing_dim, 
+                existing_weights,
+                existing_max_support,
+                container_dim,
+                item.weight
+            )
             
             # Find best fit using the same score as Level 1
             best_fit = None # (EP_idx, Rot_idx, Score)

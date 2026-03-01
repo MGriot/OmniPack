@@ -1,13 +1,14 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Wait** - Multi-Container & Strategy Logic Implemented (Verified)
+**Wait** - Weight & Stacking Constraints Implemented (Verified)
 
 ## 📋 Backlog
-- [ ] 011: Physical Simulation - Gravity & Stability check
 - [ ] 012: PDF/CAD Export logic
+- [ ] 013: 3D Physics - Center of Gravity check
 
 ## 🕒 Recent History
+- [x] 011: Weight & Stacking Constraints
 - [x] 010: Multi-Container & Strategy Logic
 - [x] 009: API Layer - FastAPI
 - [x] 008: Visualization - JSON Export & HTML Prototype

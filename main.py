@@ -23,6 +23,8 @@ class ItemInput(BaseModel):
     width: float
     height: float
     depth: float
+    weight: float = 0.0
+    max_stack_weight: float = 1000000.0
 
 class ContainerInput(BaseModel):
     id: str
@@ -45,7 +47,7 @@ async def pack_items_api(request: PackingRequest):
         request.container.depth
     )
     items = [
-        Item(i.id, i.width, i.height, i.depth) for i in request.items
+        Item(i.id, i.width, i.height, i.depth, weight=i.weight, max_stack_weight=i.max_stack_weight) for i in request.items
     ]
 
     # Handle multi-container logic

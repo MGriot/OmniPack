@@ -17,6 +17,7 @@ class Item:
     height: float
     depth: float
     weight: float = 0.0
+    max_stack_weight: float = 1000000.0 # Default: can support almost anything
     rotation: Rotation = Rotation.W_H_D
     position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
@@ -41,7 +42,9 @@ class Item:
             "position": {"x": self.position[0], "y": self.position[1], "z": self.position[2]},
             "dimensions": {"w": w, "h": h, "d": d},
             "original_dim": {"w": self.width, "h": self.height, "d": self.depth},
-            "rotation": self.rotation.name
+            "rotation": self.rotation.name,
+            "weight": self.weight,
+            "max_stack_weight": self.max_stack_weight
         }
 
 @dataclass
