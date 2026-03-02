@@ -10,12 +10,12 @@ class MultiContainerEngine:
     def __init__(self, base_container: Container):
         self.base_container = base_container
 
-    def _get_engine(self, container: Container, mode: str):
+    def _get_engine(self, container: Container, mode: str, stability_factor=1.0):
         if mode == "level1":
-            return Level1Engine(container)
-        return Level2Engine(container)
+            return Level1Engine(container, stability_factor=stability_factor)
+        return Level2Engine(container, stability_factor=stability_factor)
 
-    def pack_all(self, items: List[Item], strategy: str = "minimize_out", mode: str = "level2") -> List[Container]:
+    def pack_all(self, items: List[Item], strategy: str = "minimize_out", mode: str = "level2", stability_factor=1.0) -> List[Container]:
         containers = []
         remaining_items = copy.deepcopy(items)
         
@@ -28,18 +28,16 @@ class MultiContainerEngine:
         )
         
         if mode == "genetic":
-            optimizer = GeneticOptimizer(c1, remaining_items, population_size=10, generations=5)
+            optimizer = GeneticOptimizer(c1, remaining_items, population_size=10, generations=5, stability_factor=stability_factor)
             packed, _ = optimizer.evolve()
             c1.items = packed
         elif mode == "mcts":
-            optimizer = MonteCarloOptimizer(c1, remaining_items, time_limit=3.0)
+            optimizer = MonteCarloOptimizer(c1, remaining_items, time_limit=3.0, stability_factor=stability_factor)
             packed = optimizer.search()
             c1.items = packed
         else:
-            engine = self._get_engine(c1, mode)
-            unpacked = engine.pack(remaining_items)
-            # Find what was packed for consistent handling
-            # In Level 1/2 engine is in-place, so we don't need to reassign
+            engine = self._get_engine(c1, mode, stability_factor=stability_factor)
+            engine.pack(remaining_items)
         
         packed_ids = {it.id for it in c1.items}
         unpacked = [it for it in remaining_items if it.id not in packed_ids]
@@ -51,9 +49,10 @@ class MultiContainerEngine:
         # 2. Strategy Logic for overflow
         if strategy == "minimize_out":
             c2 = Container(self.base_container.id + "_Overflow", self.base_container.width, self.base_container.height, self.base_container.depth)
-            engine2 = self._get_engine(c2, mode if mode in ["level1", "level2"] else "level2")
+            engine2 = self._get_engine(c2, mode if mode in ["level1", "level2"] else "level2", stability_factor=stability_factor)
             engine2.pack(unpacked)
-            containers.append(c2)
+            if c2.items:
+                containers.append(c2)
             
         elif strategy == "optimal_balance":
             max_w = max((i.width for i in unpacked), default=self.base_container.width)
@@ -61,8 +60,9 @@ class MultiContainerEngine:
             suggested_h = max(max((i.height for i in unpacked), default=0), total_vol / (max_w * self.base_container.depth))
             
             c2 = Container("Suggested_Space", max_w, suggested_h, self.base_container.depth)
-            engine2 = self._get_engine(c2, "level2")
+            engine2 = self._get_engine(c2, "level2", stability_factor=stability_factor)
             engine2.pack(unpacked)
-            containers.append(c2)
+            if c2.items:
+                containers.append(c2)
 
         return containers

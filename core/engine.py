@@ -3,8 +3,9 @@ from .models import Item, Container, Rotation
 from .ep import ExtremePoint, generate_extreme_points, get_valid_ep
 
 class Level1Engine:
-    def __init__(self, container: Container):
+    def __init__(self, container: Container, stability_factor=1.0):
         self.container = container
+        self.stability_factor = stability_factor
         self.extreme_points: Set[ExtremePoint] = {ExtremePoint(0, 0, 0)}
 
     def _get_overlap_area(self, ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
@@ -39,6 +40,9 @@ class Level1Engine:
         sorted_items = sorted(items, key=lambda x: x.volume(), reverse=True)
         unpacked_items = []
 
+        # Dynamic Z penalty based on stability factor
+        z_multiplier = 1.0 + (self.stability_factor * 4999.0)
+
         for item in sorted_items:
             best_fit = None
             for rot in Rotation:
@@ -49,12 +53,11 @@ class Level1Engine:
                     can_place = True
                     w, h, d = item.get_dimension()
                     
-                    # Check every existing item if it would support the new item
+                    # Support & Weight Check
                     for i, other in enumerate(self.container.items):
                         ox, oy, oz = other.position
                         ow, oh, od = other.get_dimension()
                         
-                        # If new item is on top of 'other'
                         if abs(ep.z - (oz + od)) < 0.001:
                             overlap = self._get_overlap_area(ep.x, ep.y, ep.x+w, ep.y+h, ox, oy, ox+ow, oy+oh)
                             if overlap > 0:
@@ -65,9 +68,9 @@ class Level1Engine:
                                     break
                     
                     if not can_place: continue
-                    # EXTREME FLOOR PRIORITY
-                    # Multiply Z by 1000 to ensure floor spots are always chosen over stacking
-                    score = (ep.z * 1000.0, ep.y, ep.x)
+                    
+                    # Score: lower Z-penalty-scaled first
+                    score = (ep.z * z_multiplier, ep.y, ep.x)
                     if best_fit is None or score < best_fit[2]:
                         best_fit = (ep, rot, score)
             

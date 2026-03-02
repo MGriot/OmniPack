@@ -31,10 +31,11 @@ class MonteCarloOptimizer:
     Intelligent Search Engine using Monte Carlo Tree Search.
     Mimics 'thinking' by simulating multiple possible futures before placing an item.
     """
-    def __init__(self, base_container: Container, items: List[Item], time_limit=2.0):
+    def __init__(self, base_container: Container, items: List[Item], time_limit=2.0, stability_mode=True):
         self.base_container = base_container
         self.items = items
         self.time_limit = time_limit
+        self.stability_mode = stability_mode
 
     def _simulate(self, node: MCTSNode) -> float:
         """Rollout: Fast completion of packing using a heuristic (Level 2 engine)."""
@@ -42,7 +43,7 @@ class MonteCarloOptimizer:
         temp_items = copy.deepcopy(node.items_remaining)
         random.shuffle(temp_items)
         
-        engine = Level2Engine(temp_container)
+        engine = Level2Engine(temp_container, stability_mode=self.stability_mode)
         engine.pack(temp_items)
         
         # Reward = % of total volume filled
@@ -62,7 +63,7 @@ class MonteCarloOptimizer:
                 new_items = [it for j, it in enumerate(node.items_remaining) if i != j]
                 # Pre-calculate a placement for the chosen item using Level 2 logic
                 temp_c = copy.deepcopy(node.container)
-                engine = Level2Engine(temp_c)
+                engine = Level2Engine(temp_c, stability_mode=self.stability_mode)
                 engine.pack([copy.deepcopy(node.items_remaining[i])])
                 
                 child = MCTSNode(new_items, temp_c, parent=node)
@@ -94,23 +95,18 @@ class MonteCarloOptimizer:
         # Final sequence: pick the most visited paths
         best_path_items = []
         curr = root
-        # We'll just return the best next state or a greedy sequence based on search
-        # To keep it simple for now, we'll run one last simulation from the root's best child path
         while curr.children:
             curr = max(curr.children, key=lambda c: c.visits)
-            # Find the item added in this step
             if curr.parent:
                 added_item = curr.parent.items_remaining[curr.action]
                 best_path_items.append(added_item)
         
-        # If the search didn't finish the sequence, append remaining
         packed_ids = {it.id for it in best_path_items}
         remaining = [it for it in self.items if it.id not in packed_ids]
         final_sequence = best_path_items + remaining
         
-        # Actually pack it into a final container
         final_c = Container("MCTS_Result", self.base_container.width, self.base_container.height, self.base_container.depth)
-        engine = Level2Engine(final_c)
+        engine = Level2Engine(final_c, stability_mode=self.stability_mode)
         engine.pack(final_sequence)
         
         return final_c.items

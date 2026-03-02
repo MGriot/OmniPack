@@ -43,7 +43,7 @@ def calculate_cumulative_loads(existing_pos, existing_dim, existing_weights):
     return loads
 
 @njit(parallel=True, cache=True)
-def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, existing_weights, existing_max_weights, container_dim, item_weight):
+def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, existing_weights, existing_max_weights, container_dim, item_weight, stability_factor=1.0):
     num_eps = len(eps)
     num_rots = len(item_dims)
     cw, ch, cd = container_dim
@@ -51,12 +51,36 @@ def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, exis
     n_existing = len(existing_pos)
     current_loads = calculate_cumulative_loads(existing_pos, existing_dim, existing_weights)
 
+    # Pre-check: exists any floor position?
+    any_floor_valid = False
+    # Strict floor-first only if stability is high (> 0.7)
+    if stability_factor > 0.7:
+        for i in range(num_eps):
+            if eps[i, 2] < 0.001:
+                for j in range(num_rots):
+                    iw, ih, id_ = item_dims[j]
+                    if (eps[i, 0] + iw <= cw + 0.001 and eps[i, 1] + ih <= ch + 0.001 and eps[i, 2] + id_ <= cd + 0.001):
+                        collision = False
+                        for k in range(n_existing):
+                            if (eps[i, 0] < existing_pos[k, 0] + existing_dim[k, 0] - 0.001 and eps[i, 0] + iw > existing_pos[k, 0] + 0.001 and
+                                eps[i, 1] < existing_pos[k, 1] + existing_dim[k, 1] - 0.001 and eps[i, 1] + ih > existing_pos[k, 1] + 0.001 and
+                                eps[i, 2] < existing_pos[k, 2] + existing_dim[k, 2] - 0.001 and eps[i, 2] + id_ > existing_pos[k, 2] + 0.001):
+                                collision = True; break
+                        if not collision:
+                            any_floor_valid = True; break
+            if any_floor_valid: break
+
     for i in prange(num_eps):
         ex, ey, ez = eps[i]
+        
+        # If stability is very high and floor is available, we strictly ignore stacking
+        if stability_factor > 0.9 and any_floor_valid and ez > 0.001:
+            continue
+
         for j in range(num_rots):
             iw, ih, id_ = item_dims[j]
             
-            # 1. Physical fit (Boundary & Collision)
+            # 1. Physical fit
             if (ex + iw <= cw + 0.001 and ey + ih <= ch + 0.001 and ez + id_ <= cd + 0.001):
                 collision = False
                 for k in range(n_existing):
@@ -65,8 +89,7 @@ def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, exis
                     if (ex < ox + ow - 0.001 and ex + iw > ox + 0.001 and
                         ey < oy + oh - 0.001 and ey + ih > oy + 0.001 and
                         ez < oz + od - 0.001 and ez + id_ > oz + 0.001):
-                        collision = True
-                        break
+                        collision = True; break
                 if collision: continue
 
                 # 2. Support check
@@ -86,18 +109,13 @@ def evaluate_positions_parallel(eps, item_dims, existing_pos, existing_dim, exis
                                 support_indices.append(k)
                                 support_areas.append(area)
                     
-                    # Tipping Rule: Center of Gravity must be over supports
-                    # Simple version: Area supported must be > 50% of footprint
                     if total_contact > (iw * ih * 0.5):
-                        # Weight Rule: Supports must not exceed capacity
                         can_sustain = True
                         for m in range(len(support_indices)):
                             idx_k = support_indices[m]
                             added_load = item_weight * (support_areas[m] / total_contact)
-                            # Load on K is (Total - Own Weight)
                             if (current_loads[idx_k] - existing_weights[idx_k] + added_load) > existing_max_weights[idx_k] + 0.001:
-                                can_sustain = False
-                                break
+                                can_sustain = False; break
                         if can_sustain:
                             results[i, j] = True
     return results

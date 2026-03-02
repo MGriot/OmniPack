@@ -32,7 +32,8 @@ The primary optimization endpoint.
   ],
   "mode": "level2",
   "strategy": "minimize_out",
-  "iterations": 20
+  "iterations": 20,
+  "stability_factor": 1.0
 }
 ```
 
@@ -45,6 +46,9 @@ The primary optimization endpoint.
   - `minimize_out`: Standard overflow.
   - `optimal_balance`: Suggest custom secondary space size.
 - **`iterations`**: Number of random permutations to test for the best local minimum.
+- **`stability_factor`**: (float, 0.0 to 1.0)
+  - `0.0`: Prioritize Volume/Density (ignore height penalties).
+  - `1.0`: Prioritize Stability (strictly prefer floor space).
 
 #### Response
 Returns a list of `suggestions`, each containing one or more containers with placed items.

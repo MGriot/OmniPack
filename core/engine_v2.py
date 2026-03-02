@@ -9,9 +9,9 @@ class Level2Engine:
     PC/Workstation Engine: Uses Numba JIT and Parallel loops.
     Optimized for floor utilization and space discovery.
     """
-    def __init__(self, container: Container):
+    def __init__(self, container: Container, stability_factor=1.0):
         self.container = container
-        # Use a dictionary to keep track of points and their scores if needed
+        self.stability_factor = stability_factor
         self.extreme_points: Set[ExtremePoint] = {ExtremePoint(0, 0, 0)}
 
     def pack(self, items: List[Item]) -> List[Item]:
@@ -42,19 +42,23 @@ class Level2Engine:
             # Parallel verification of all possible placements
             valid_mask = evaluate_positions_parallel(
                 eps_array, rots_array, existing_pos, existing_dim, 
-                existing_weights, existing_max_support, container_dim, item.weight
+                existing_weights, existing_max_support, container_dim, item.weight,
+                stability_factor=self.stability_factor
             )
             
             best_fit = None # (EP_idx, Rot_idx, Score)
             
+            # Dynamic Z penalty based on stability factor
+            # 0.0 -> Penalty 1.0 (Density)
+            # 1.0 -> Penalty 5000.0 (Stability)
+            z_multiplier = 1.0 + (self.stability_factor * 4999.0)
+
             for i in range(len(eps_list)):
                 for j in range(6):
                     if valid_mask[i, j]:
                         ep = eps_list[i]
-                        # EXTREME FLOOR PRIORITY:
-                        # Multiply Z by 1000 to ensure any Z=0 spot always beats any Z>0 spot
-                        # regardless of X and Y.
-                        score = (ep.z * 1000.0, ep.y, ep.x)
+                        # Score: prioritize lower Z, then lower Y, then lower X
+                        score = (ep.z * z_multiplier, ep.y, ep.x)
                         
                         if best_fit is None or score < best_fit[2]:
                             best_fit = (i, j, score)

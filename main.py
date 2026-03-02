@@ -62,6 +62,7 @@ class PackingRequest(BaseModel):
     mode: str = "level2" 
     strategy: str = "minimize_out" 
     iterations: int = 20 
+    stability_factor: float = 1.0
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
@@ -93,7 +94,6 @@ async def pack_items_api(request: PackingRequest):
                     weight=inp.weight, max_stack_weight=inp.max_stack_weight,
                     group_id=inp.group_id
                 )
-                # Grouping key: prefer group_id, then id type
                 g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]
                 
                 if inp.allow_mixing:
@@ -109,7 +109,12 @@ async def pack_items_api(request: PackingRequest):
                     final_list.append(it)
 
         multi_engine = MultiContainerEngine(base_container)
-        containers = multi_engine.pack_all(final_list, strategy=request.strategy, mode=request.mode)
+        containers = multi_engine.pack_all(
+            final_list, 
+            strategy=request.strategy, 
+            mode=request.mode, 
+            stability_factor=request.stability_factor
+        )
         
         total_vol = sum(c.volume() for c in containers)
         used_vol = sum(sum(it.volume() for it in c.items) for c in containers)

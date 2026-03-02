@@ -20,5 +20,10 @@ All notable changes to the OmniPack-Hybrid project will be documented in this fi
 - **Engine Integrity**: Restored visibility and verified all 4 optimization engines (Level 1, Level 2, Genetic, MCTS).
 - Improved floor-first priority logic to prevent unnecessary vertical stacking.
 
+### Changed
+- **Optimization Priority**: Replaced binary Stability toggle with a proportional **Stability/Density Slider** (`stability_factor`). This allows granular control over height penalties and space utilization.
+- **Interactive Previews**: Item previews in the sidebar now support full 3D rotation and zoom controls.
+- **Single Container Optimization**: Refined `MultiContainerEngine` to prioritize filling the primary container and suppress empty overflow suggestions.
+
 ---
 *For granular task history, see individual files in the `changelog/` directory.*
