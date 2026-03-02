@@ -80,9 +80,16 @@
     {
       "id": "012",
       "title": "Intelligent Search - Monte Carlo Tree Search (MCTS)",
-      "status": "in_progress",
+      "status": "done",
       "verification_method": "Benchmark MCTS vs BFD",
       "description": "Implement an exploratory 'thinking' engine using MCTS to find local/global minima for packing waste."
+    },
+    {
+      "id": "013",
+      "title": "Stabilization - API & Visualizer Fixes",
+      "status": "done",
+      "verification_method": "Visual check of WxHxD alignment and API connectivity",
+      "description": "Fix 'API unreachable' error, restore engine visibility, and align 3D coordinate system (Y-up)."
     }
   ]
 }

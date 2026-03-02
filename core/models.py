@@ -17,9 +17,10 @@ class Item:
     height: float
     depth: float
     weight: float = 0.0
-    max_stack_weight: float = 1000000.0 # Default: can support almost anything
+    max_stack_weight: float = 1000000.0 
     rotation: Rotation = Rotation.W_H_D
     position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    group_id: Optional[str] = None # NEW: Persist grouping metadata
 
     def get_dimension(self) -> Tuple[float, float, float]:
         """Returns the dimensions based on current rotation."""
@@ -39,6 +40,7 @@ class Item:
         w, h, d = self.get_dimension()
         return {
             "id": self.id,
+            "group_id": self.group_id,
             "position": {"x": self.position[0], "y": self.position[1], "z": self.position[2]},
             "dimensions": {"w": w, "h": h, "d": d},
             "original_dim": {"w": self.width, "h": self.height, "d": self.depth},

@@ -51,8 +51,10 @@ class Level2Engine:
                 for j in range(6):
                     if valid_mask[i, j]:
                         ep = eps_list[i]
-                        # Score: Z first (Floor), then Y (Back), then X (Left)
-                        score = (ep.z, ep.y, ep.x)
+                        # EXTREME FLOOR PRIORITY:
+                        # Multiply Z by 1000 to ensure any Z=0 spot always beats any Z>0 spot
+                        # regardless of X and Y.
+                        score = (ep.z * 1000.0, ep.y, ep.x)
                         
                         if best_fit is None or score < best_fit[2]:
                             best_fit = (i, j, score)

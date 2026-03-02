@@ -65,7 +65,9 @@ class Level1Engine:
                                     break
                     
                     if not can_place: continue
-                    score = (ep.z, ep.y, ep.x)
+                    # EXTREME FLOOR PRIORITY
+                    # Multiply Z by 1000 to ensure floor spots are always chosen over stacking
+                    score = (ep.z * 1000.0, ep.y, ep.x)
                     if best_fit is None or score < best_fit[2]:
                         best_fit = (ep, rot, score)
             

@@ -1,59 +1,45 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OmniPack 3D Pro - Advanced Constraints</title>
+    <title>OmniPack 3D Pro - Stable Edition</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         body, html { width: 100%; height: 100%; margin: 0; overflow: hidden; }
         #renderCanvas { width: 100%; height: 100%; }
         #ui { 
-            position: absolute; 
-            top: 10px; 
-            left: 10px; 
-            background: rgba(0,0,0,0.9); 
-            color: white; 
-            padding: 20px; 
-            font-family: 'Segoe UI', sans-serif; 
-            border-radius: 12px;
-            width: 340px;
-            max-height: 90vh;
-            overflow-y: auto;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            z-index: 10;
+            position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.9); 
+            color: white; padding: 20px; font-family: 'Segoe UI', sans-serif; 
+            border-radius: 12px; width: 360px; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 10;
         }
         .section { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
         label { display: block; font-size: 0.8em; margin-bottom: 2px; color: #aaa; }
         input, select { 
-            width: 100%; 
-            padding: 6px; 
-            margin-bottom: 8px; 
-            background: #222; 
-            border: 1px solid #444; 
-            color: white; 
-            border-radius: 4px;
-            box-sizing: border-box;
-            font-size: 0.9em;
+            width: 100%; padding: 6px; margin-bottom: 8px; background: #222; 
+            border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; font-size: 0.9em;
         }
         .row { display: flex; gap: 5px; }
         .row input { flex: 1; }
         button { 
-            width: 100%; 
-            padding: 12px; 
-            cursor: pointer; 
-            background: #007bff; 
-            color: white; 
-            border: none; 
-            border-radius: 6px;
-            font-weight: bold;
-            transition: background 0.2s;
+            width: 100%; padding: 12px; cursor: pointer; background: #007bff; color: white; 
+            border: none; border-radius: 6px; font-weight: bold; transition: background 0.2s;
         }
         button:hover { background: #0056b3; }
         button.add { background: #6c757d; padding: 5px; margin-bottom: 15px; font-size: 0.8em; }
-        .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 8px; border-radius: 6px; position: relative; border-left: 4px solid #007bff; }
+        .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 10px; border-radius: 6px; position: relative; border-left: 4px solid #007bff; }
         .remove-btn { position: absolute; right: 5px; top: 5px; color: #ff4d4d; cursor: pointer; font-weight: bold; }
-        #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; line-height: 1.4; }
+        #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; line-height: 1.4; white-space: pre-wrap; }
+        
+        .preview-canvas { width: 100%; height: 80px; background: #000; border-radius: 4px; margin-top: 5px; }
+        
+        #scenario-selector { margin-top: 10px; display: none; }
+        .scenario-card { background: #222; padding: 10px; margin-bottom: 5px; border-radius: 6px; cursor: pointer; border: 1px solid #444; font-size: 0.85em; }
+        .scenario-card.active { border-color: #007bff; background: #002b55; }
+        
         #container-switcher { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 20px; color: white; display: none; gap: 10px; align-items: center; }
         .nav-btn { background: #444; border: none; color: white; padding: 5px 15px; border-radius: 15px; cursor: pointer; }
+        .toggle-row { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; font-size: 0.85em; }
+        .toggle-row input { width: auto; margin: 0; }
     </style>
 </head>
 <body>
@@ -61,7 +47,7 @@
         <h2 style="margin-top:0; color: #007bff;">OmniPack 3D Pro</h2>
         
         <div class="section">
-            <label>Primary Space (W x H x D)</label>
+            <label>Space (W x H x D)</label>
             <div class="row">
                 <input type="number" id="cW" value="100">
                 <input type="number" id="cH" value="50">
@@ -70,56 +56,52 @@
         </div>
 
         <div class="section">
-            <label>Items & Constraints</label>
+            <label>Items & Physical Constraints</label>
             <div id="items-list">
                 <div class="item-row" id="item-0">
                     <span class="remove-btn" onclick="removeItem(0)">×</span>
-                    <label>Dimensions (W x H x D)</label>
-                    <div class="row">
-                        <input type="number" class="iW" value="30">
-                        <input type="number" class="iH" value="30">
-                        <input type="number" class="iD" value="30">
+                    <label>Dimensions & Color</label>
+                    <div class="row" style="align-items: center;">
+                        <input type="number" class="iW" value="30" onchange="updatePreview(0)">
+                        <input type="number" class="iH" value="30" onchange="updatePreview(0)">
+                        <input type="number" class="iD" value="30" onchange="updatePreview(0)">
+                        <input type="color" class="iColor" value="#3498db" onchange="updatePreview(0)">
                     </div>
                     <div class="row">
-                        <div style="flex:1">
-                            <label>Weight (kg)</label>
-                            <input type="number" class="iWeight" value="10">
-                        </div>
-                        <div style="flex:1">
-                            <label>Max Top (kg)</label>
-                            <input type="number" class="iMax" value="5">
-                        </div>
+                        <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="10"></div>
+                        <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="50"></div>
                     </div>
-                    <label>Quantity</label>
-                    <input type="number" class="iQ" value="5">
+                    <div class="toggle-row"><input type="checkbox" class="iMix" checked><span>Allow Mixing</span></div>
+                    <label>Quantity</label><input type="number" class="iQ" value="5">
+                    <canvas class="preview-canvas" id="prev-0"></canvas>
                 </div>
             </div>
             <button class="add" onclick="addItem()">+ Add Item Type</button>
         </div>
 
         <div class="section">
-            <label>Optimization Strategy</label>
-            <select id="strategy">
-                <option value="minimize_out">Minimize Items Out</option>
-                <option value="optimal_balance">Suggest Additional Space</option>
-            </select>
-            <label>Engine</label>
+            <label>Optimization</label>
+            <label>Iterations</label><input type="number" id="iter" value="20">
             <select id="mode">
-                <option value="mcts">Intelligent (MCTS - Thinking Engine)</option>
                 <option value="level2">Accelerated Multi-Core</option>
-                <option value="level1">Standard Legacy</option>
+                <option value="mcts">Intelligent (MCTS)</option>
                 <option value="genetic">Evolutionary (Genetic)</option>
+                <option value="level1">Standard Legacy</option>
             </select>
-            <button onclick="runPacking()">START OPTIMIZATION</button>
+            <button onclick="runPacking()">FIND BEST MINIMA</button>
         </div>
         
+        <div id="scenario-selector">
+            <label>Top Solutions:</label>
+            <div id="scenarios-list"></div>
+        </div>
         <div id="stats">Status: Ready</div>
     </div>
 
     <div id="container-switcher">
-        <button class="nav-btn" onclick="prevContainer()">&lt; Prev</button>
-        <span id="container-info">Container 1 of 1</span>
-        <button class="nav-btn" onclick="nextContainer()">Next &gt;</button>
+        <button class="nav-btn" onclick="prevContainer()">&lt;</button>
+        <span id="container-info"></span>
+        <button class="nav-btn" onclick="nextContainer()">&gt;</button>
     </div>
 
     <canvas id="renderCanvas"></canvas>
@@ -129,139 +111,232 @@
         const canvas = document.getElementById("renderCanvas");
         const engine = new BABYLON.Engine(canvas, true);
         let currentScene = null;
-        let packedContainers = [];
+        let allSuggestions = [];
+        let activeScenarioIdx = 0;
         let activeContainerIdx = 0;
+        const previews = {};
+
+        function getRandomColor() {
+            const colors = ['#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'];
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
 
         function addItem() {
             const list = document.getElementById("items-list");
+            const id = itemCounter;
             const div = document.createElement("div");
             div.className = "item-row";
-            div.id = `item-${itemCounter}`;
+            div.id = `item-${id}`;
             div.innerHTML = `
-                <span class="remove-btn" onclick="removeItem(${itemCounter})">×</span>
-                <label>Dimensions (W x H x D)</label>
-                <div class="row">
-                    <input type="number" class="iW" value="20">
-                    <input type="number" class="iH" value="20">
-                    <input type="number" class="iD" value="20">
+                <span class="remove-btn" onclick="removeItem(${id})">×</span>
+                <label>Dimensions & Color</label>
+                <div class="row" style="align-items: center;">
+                    <input type="number" class="iW" value="20" onchange="updatePreview(${id})">
+                    <input type="number" class="iH" value="20" onchange="updatePreview(${id})">
+                    <input type="number" class="iD" value="20" onchange="updatePreview(${id})">
+                    <input type="color" class="iColor" value="${getRandomColor()}" onchange="updatePreview(${id})">
                 </div>
                 <div class="row">
-                    <div style="flex:1">
-                        <label>Weight (kg)</label>
-                        <input type="number" class="iWeight" value="5">
-                    </div>
-                    <div style="flex:1">
-                        <label>Max Top (kg)</label>
-                        <input type="number" class="iMax" value="50">
-                    </div>
+                    <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="5"></div>
+                    <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="50"></div>
                 </div>
-                <label>Quantity</label>
-                <input type="number" class="iQ" value="1">
+                <div class="toggle-row"><input type="checkbox" class="iMix" checked><span>Allow Mixing</span></div>
+                <label>Quantity</label><input type="number" class="iQ" value="1">
+                <canvas class="preview-canvas" id="prev-${id}"></canvas>
             `;
             list.appendChild(div);
+            setTimeout(() => initItemPreview(id), 50);
             itemCounter++;
         }
 
-        function removeItem(id) { document.getElementById(`item-${id}`).remove(); }
+        function removeItem(id) { 
+            if (previews[id]) { previews[id].engine.dispose(); delete previews[id]; }
+            const el = document.getElementById(`item-${id}`);
+            if (el) el.remove();
+        }
+
+        function initItemPreview(id) {
+            const canv = document.getElementById(`prev-${id}`);
+            if (!canv) return;
+            const pEngine = new BABYLON.Engine(canv, true);
+            const scene = new BABYLON.Scene(pEngine);
+            scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.1, 1);
+            const cam = new BABYLON.ArcRotateCamera("pcam", 0, 0, 5, BABYLON.Vector3.Zero(), scene);
+            cam.setPosition(new BABYLON.Vector3(3, 3, -3));
+            new BABYLON.HemisphericLight("plight", new BABYLON.Vector3(1, 1, 0), scene);
+            const box = BABYLON.MeshBuilder.CreateBox("pbox", { size: 1 }, scene);
+            box.enableEdgesRendering();
+            box.edgesWidth = 10.0;
+            box.edgesColor = new BABYLON.Color4(1, 1, 1, 1);
+            const mat = new BABYLON.StandardMaterial("pmat", scene);
+            box.material = mat;
+            previews[id] = { engine: pEngine, scene: scene, box: box, mat: mat };
+            pEngine.runRenderLoop(() => scene.render());
+            updatePreview(id);
+        }
+
+        function updatePreview(id) {
+            const p = previews[id];
+            if (!p) return;
+            const row = document.getElementById(`item-${id}`);
+            if (!row) return;
+            const w = parseFloat(row.querySelector(".iW").value);
+            const h = parseFloat(row.querySelector(".iH").value);
+            const d = parseFloat(row.querySelector(".iD").value);
+            const color = row.querySelector(".iColor").value;
+            
+            // Normalize scaling so it fits the preview perfectly
+            const maxDim = Math.max(w, h, d) || 1;
+            p.box.scaling = new BABYLON.Vector3(w/maxDim * 1.5, h/maxDim * 1.5, d/maxDim * 1.5);
+            p.mat.diffuseColor = BABYLON.Color3.FromHexString(color);
+        }
 
         const createScene = function (containerData) {
             const scene = new BABYLON.Scene(engine);
             scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.05, 1);
-            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 200, new BABYLON.Vector3(0,0,0), scene);
+            
+            // Default camera setup
+            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 200, BABYLON.Vector3.Zero(), scene);
             camera.attachControl(canvas, true);
             new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
 
-            if (!containerData) return scene;
-
+            if (!containerData || !containerData.dimensions) return scene;
+            
+            // Backend Mapping (Z is Up):
+            // Backend W (X) -> Babylon X
+            // Backend D (Y) -> Babylon Z
+            // Backend H (Z) -> Babylon Y (Vertical)
             const { dimensions, items } = containerData;
-            camera.setTarget(new BABYLON.Vector3(dimensions.w/2, dimensions.h/2, dimensions.d/2));
-            camera.radius = Math.max(dimensions.w, dimensions.h, dimensions.d) * 2.5;
+            const bW = dimensions.w, bD = dimensions.h, bH = dimensions.d; // Backend names: w, h, d
+            
+            camera.setTarget(new BABYLON.Vector3(bW/2, bH/2, bD/2));
+            camera.radius = Math.max(bW, bH, bD) * 2.2;
 
-            const box = BABYLON.MeshBuilder.CreateBox("cont", { width: dimensions.w, height: dimensions.h, depth: dimensions.d }, scene);
-            box.position = new BABYLON.Vector3(dimensions.w/2, dimensions.h/2, dimensions.d/2);
-            box.material = new BABYLON.StandardMaterial("m", scene);
-            box.material.wireframe = true;
-            box.material.alpha = 0.2;
+            const cont = BABYLON.MeshBuilder.CreateBox("cont", { width: bW, height: bH, depth: bD }, scene);
+            cont.position = new BABYLON.Vector3(bW/2, bH/2, bD/2);
+            cont.material = new BABYLON.StandardMaterial("m", scene);
+            cont.material.wireframe = true;
+            cont.material.alpha = 0.2;
 
-            items.forEach((item, i) => {
-                const iBox = BABYLON.MeshBuilder.CreateBox(item.id, { width: item.dimensions.w, height: item.dimensions.h, depth: item.dimensions.d }, scene);
-                iBox.position = new BABYLON.Vector3(item.position.x + item.dimensions.w/2, item.position.y + item.dimensions.h/2, item.position.z + item.dimensions.d/2);
-                iBox.material = new BABYLON.StandardMaterial("im"+i, scene);
-                iBox.material.diffuseColor = BABYLON.Color3.FromHSV((i * 137.5) % 360, 0.6, 0.8);
-                
-                // Add a small visual indicator for heavy items or fragile ones
-                if (item.weight > 20) { iBox.material.emissiveColor = new BABYLON.Color3(0.2, 0, 0); }
+            const itemRows = document.querySelectorAll(".item-row");
+            const colorMap = {};
+            itemRows.forEach(row => {
+                const rowId = row.id.split('-')[1];
+                colorMap[`type_${rowId}`] = row.querySelector(".iColor").value;
             });
 
+            if (items) {
+                items.forEach((item, i) => {
+                    const iW = item.dimensions.w, iD = item.dimensions.h, iH = item.dimensions.d;
+                    const iBox = BABYLON.MeshBuilder.CreateBox(item.id, { width: iW, height: iH, depth: iD }, scene);
+                    // Babylon Y is Backend Z
+                    iBox.position = new BABYLON.Vector3(item.position.x + iW/2, item.position.z + iH/2, item.position.y + iD/2);
+                    iBox.enableEdgesRendering();
+                    iBox.edgesWidth = 15.0;
+                    iBox.edgesColor = new BABYLON.Color4(1, 1, 1, 1);
+                    iBox.material = new BABYLON.StandardMaterial("im"+i, scene);
+                    
+                    const hexColor = colorMap[item.group_id] || "#3498db";
+                    iBox.material.diffuseColor = BABYLON.Color3.FromHexString(hexColor);
+                });
+            }
             return scene;
         };
 
-        function updateView() {
-            if (packedContainers.length > 0) {
-                if (currentScene) currentScene.dispose();
-                currentScene = createScene(packedContainers[activeContainerIdx]);
-                document.getElementById("container-info").innerText = `View: ${packedContainers[activeContainerIdx].id} (${activeContainerIdx + 1}/${packedContainers.length})`;
-                engine.runRenderLoop(() => currentScene.render());
-            }
+        function selectScenario(idx) {
+            activeScenarioIdx = idx; activeContainerIdx = 0;
+            const cards = document.querySelectorAll('.scenario-card');
+            cards.forEach((c, i) => c.className = i === idx ? 'scenario-card active' : 'scenario-card');
+            updateView();
         }
 
-        function nextContainer() { activeContainerIdx = (activeContainerIdx + 1) % packedContainers.length; updateView(); }
-        function prevContainer() { activeContainerIdx = (activeContainerIdx - 1 + packedContainers.length) % packedContainers.length; updateView(); }
+        function updateView() {
+            if (!allSuggestions || !allSuggestions[activeScenarioIdx]) return;
+            const scenario = allSuggestions[activeScenarioIdx];
+            const container = scenario.containers[activeContainerIdx];
+            if (currentScene) currentScene.dispose();
+            currentScene = createScene(container);
+            document.getElementById("container-info").innerText = `${container.id} (${activeContainerIdx + 1}/${scenario.containers.length})`;
+            document.getElementById("container-switcher").style.display = scenario.containers.length > 1 ? "flex" : "none";
+            engine.runRenderLoop(() => currentScene.render());
+        }
+
+        function nextContainer() { if(!allSuggestions[activeScenarioIdx]) return; const s = allSuggestions[activeScenarioIdx]; activeContainerIdx = (activeContainerIdx + 1) % s.containers.length; updateView(); }
+        function prevContainer() { if(!allSuggestions[activeScenarioIdx]) return; const s = allSuggestions[activeScenarioIdx]; activeContainerIdx = (activeContainerIdx - 1 + s.containers.length) % s.containers.length; updateView(); }
 
         async function runPacking() {
             const stats = document.getElementById("stats");
-            stats.innerHTML = "Status: 🔵 Optimizing Weight...";
-            
+            stats.innerHTML = "Status: 🔵 Searching for multiple minima...";
             const itemInputs = document.querySelectorAll(".item-row");
             const items = [];
-            itemInputs.forEach((row, idx) => {
-                const w = parseFloat(row.querySelector(".iW").value);
-                const h = parseFloat(row.querySelector(".iH").value);
-                const d = parseFloat(row.querySelector(".iD").value);
-                const weight = parseFloat(row.querySelector(".iWeight").value);
-                const maxStack = parseFloat(row.querySelector(".iMax").value);
-                const q = parseInt(row.querySelector(".iQ").value);
-                for(let i=0; i<q; i++) {
-                    items.push({ 
-                        id: `it_${idx}_${i}`, 
-                        width: w, height: h, depth: d, 
-                        weight: weight, 
-                        max_stack_weight: maxStack 
-                    });
-                }
+            itemInputs.forEach(row => {
+                const rowId = row.id.split('-')[1];
+                const w = parseFloat(row.querySelector(".iW").value), h = parseFloat(row.querySelector(".iH").value), d = parseFloat(row.querySelector(".iD").value);
+                const weight = parseFloat(row.querySelector(".iWeight").value), maxStack = parseFloat(row.querySelector(".iMax").value);
+                const mix = row.querySelector(".iMix").checked, q = parseInt(row.querySelector(".iQ").value);
+                
+                // MAPPING FIX: We send H as 'depth' (vertical) to the backend
+                for(let i=0; i<q; i++) items.push({ 
+                    id: `it_${rowId}_${i}`, group_id: `type_${rowId}`, 
+                    width: w, height: d, depth: h, 
+                    weight: weight, max_stack_weight: maxStack, allow_mixing: mix 
+                });
             });
 
-            const payload = {
-                container: { id: "Primary", width: parseFloat(document.getElementById("cW").value), height: parseFloat(document.getElementById("cH").value), depth: parseFloat(document.getElementById("cD").value) },
-                items: items,
-                mode: document.getElementById("mode").value,
-                strategy: document.getElementById("strategy").value
-            };
-
             try {
-                const response = await fetch("http://127.0.0.1:8000/pack", {
+                const cW = parseFloat(document.getElementById("cW").value);
+                const cH = parseFloat(document.getElementById("cH").value);
+                const cD = parseFloat(document.getElementById("cD").value);
+                
+                // MAPPING FIX: We send cH as 'depth' (vertical) to the backend
+                const payload = {
+                    container: { id: "Base", width: cW, height: cD, depth: cH },
+                    items: items, mode: document.getElementById("mode").value,
+                    strategy: "minimize_out", iterations: parseInt(document.getElementById("iter").value)
+                };
+
+                const isLocal = ["localhost", "127.0.0.1", "::1", ""].includes(window.location.hostname);
+                const host = isLocal ? "127.0.0.1" : window.location.hostname;
+                const apiUrl = `http://${host}:8000/pack`;
+                
+                console.log(`Attempting to connect to API at: ${apiUrl}`);
+
+                const response = await fetch(apiUrl, {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
                 });
+                
+                if (!response.ok) {
+                    const errData = await response.json();
+                    console.error("API Error Details:", errData);
+                    throw new Error(errData.detail || "API Server Error");
+                }
+                
                 const result = await response.json();
-                packedContainers = result.containers;
-                activeContainerIdx = 0;
-                
-                document.getElementById("container-switcher").style.display = packedContainers.length > 1 ? "flex" : "none";
-                updateView();
-                
-                let totalWeight = 0;
-                packedContainers.forEach(c => c.items.forEach(i => totalWeight += i.weight));
-
-                stats.innerHTML = `<span style='color:#28a745'><b>COMPLETED</b><br>Containers: ${result.total_containers}<br>Total Packed Weight: ${totalWeight.toFixed(1)}kg</span>`;
-            } catch (err) {
-                stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>";
-            }
+                allSuggestions = result.suggestions;
+                const list = document.getElementById("scenarios-list");
+                list.innerHTML = "";
+                if (allSuggestions && allSuggestions.length > 0) {
+                    allSuggestions.forEach((s, i) => {
+                        const card = document.createElement("div");
+                        card.className = "scenario-card";
+                        card.onclick = () => selectScenario(i);
+                        card.innerHTML = `<b>Option ${i+1}: ${s.global_utilization.toFixed(2)}% Space</b>`;
+                        list.appendChild(card);
+                    });
+                    document.getElementById("scenario-selector").style.display = "block";
+                    selectScenario(0);
+                    stats.innerHTML = `<span style='color:#28a745'><b>Optimization Complete</b></span>`;
+                } else {
+                    stats.innerHTML = "<span style='color:orange'>No suggestions found. Check dimensions.</span>";
+                }
+            } catch (err) { stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>"; }
         }
 
+        setTimeout(() => initItemPreview(0), 100);
         currentScene = createScene();
         engine.runRenderLoop(() => currentScene.render());
-        window.addEventListener("resize", () => engine.resize());
+        window.addEventListener("resize", () => { engine.resize(); Object.values(previews).forEach(p => p.engine.resize()); });
     </script>
 </body>
 </html>
