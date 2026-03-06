@@ -58,20 +58,17 @@
                 <input type="number" id="cH" value="50">
                 <input type="number" id="cD" value="50">
             </div>
-            <label>Sub-Volumes (Irregular Container)</label>
+            <label>Container Shape</label>
+            <select id="cST">
+                <option value="BOX">BOX (Parallelepiped)</option>
+                <option value="SPHERE">SPHERE (Centered)</option>
+                <option value="CYLINDER">CYLINDER</option>
+                <option value="TETRAHEDRON">TETRAHEDRON</option>
+            </select>
+            <label>Advanced Sub-Volumes (Holes/Irregular)</label>
             <div id="cont-parts" class="parts-container">
-                <div class="part-row" id="cp-row-init">
-                    <select class="cpST" style="width:60px; font-size:0.7em"><option value="BOX">BOX</option></select>
-                    <input type="number" step="0.1" class="cpX" placeholder="X" value="0">
-                    <input type="number" step="0.1" class="cpY" placeholder="Y" value="0">
-                    <input type="number" step="0.1" class="cpZ" placeholder="Z" value="0">
-                    <input type="number" step="0.1" class="cpW" placeholder="W" value="100">
-                    <input type="number" step="0.1" class="cpH" placeholder="H" value="50">
-                    <input type="number" step="0.1" class="cpD" placeholder="D" value="50">
-                    <span class="remove-btn" style="position:relative; margin-left:5px" onclick="this.parentElement.remove()">×</span>
-                </div>
             </div>
-            <button class="add" style="margin-top:5px" onclick="addContPart()">+ Add Volume Part</button>
+            <button class="add" style="margin-top:5px" onclick="addContPart()">+ Add Manual Part</button>
         </div>
 
         <div class="section">
@@ -80,7 +77,7 @@
                 <div class="item-row" id="item-0">
                     <span class="remove-btn" onclick="removeItem(0)">×</span>
                     <div class="row" style="align-items: center;">
-                        <div style="flex:2"><label>Bounding Box (W H D)</label>
+                        <div style="flex:2"><label>Dimensions (W H D)</label>
                             <div class="row">
                                 <input type="number" class="iW" value="30" onchange="updatePreview(0)">
                                 <input type="number" class="iH" value="30" onchange="updatePreview(0)">
@@ -90,6 +87,18 @@
                         <div style="flex:1"><label>Color</label><input type="color" class="iColor" value="#3498db" onchange="updatePreview(0)"></div>
                     </div>
                     
+                    <div class="row">
+                        <div style="flex:1"><label>Shape</label>
+                            <select class="iST" onchange="updatePreview(0)">
+                                <option value="BOX">BOX</option>
+                                <option value="SPHERE">SPHERE</option>
+                                <option value="CYLINDER">CYLINDER</option>
+                                <option value="TETRAHEDRON">TETRAHEDRON</option>
+                            </select>
+                        </div>
+                        <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="5"></div>
+                    </div>
+
                     <div class="row">
                         <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="10"></div>
                         <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="500"></div>
@@ -104,18 +113,12 @@
                                 <option value="LIFO">LIFO (Front)</option>
                             </select>
                         </div>
-                        <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="5"></div>
                     </div>
 
-                    <label>Shape Parts (Offsets & Size)</label>
+                    <label>Advanced Compound Parts</label>
                     <div class="parts-container iParts" id="parts-0">
-                        <div class="part-row" id="p-row-0-0">
-                            <input type="number" class="pX" value="0"> <input type="number" class="pY" value="0"> <input type="number" class="pZ" value="0">
-                            <input type="number" class="pW" value="30"> <input type="number" class="pH" value="30"> <input type="number" class="pD" value="30">
-                            <span class="remove-btn" style="position:relative; margin-left:5px" onclick="removePart(0, 0)">×</span>
-                        </div>
                     </div>
-                    <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(0)">+ Add Part</button>
+                    <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(0)">+ Add Sub-Part</button>
                     
                     <canvas class="preview-canvas" id="prev-0"></canvas>
                 </div>
@@ -238,7 +241,7 @@
             div.innerHTML = `
                 <span class="remove-btn" onclick="removeItem(${id})">×</span>
                 <div class="row" style="align-items: center;">
-                    <div style="flex:2"><label>Bounding Box</label>
+                    <div style="flex:2"><label>Dimensions (W H D)</label>
                         <div class="row">
                             <input type="number" class="iW" value="20" onchange="updatePreview(${id})">
                             <input type="number" class="iH" value="20" onchange="updatePreview(${id})">
@@ -246,6 +249,17 @@
                         </div>
                     </div>
                     <div style="flex:1"><label>Color</label><input type="color" class="iColor" value="#e74c3c" onchange="updatePreview(${id})"></div>
+                </div>
+                <div class="row">
+                    <div style="flex:1"><label>Shape</label>
+                        <select class="iST" onchange="updatePreview(${id})">
+                            <option value="BOX">BOX</option>
+                            <option value="SPHERE">SPHERE</option>
+                            <option value="CYLINDER">CYLINDER</option>
+                            <option value="TETRAHEDRON">TETRAHEDRON</option>
+                        </select>
+                    </div>
+                    <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="1"></div>
                 </div>
                 <div class="row">
                     <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="5"></div>
@@ -256,16 +270,11 @@
                     <div style="flex:1"><label>Strategy</label>
                         <select class="iStrat"><option value="NONE">Standard</option><option value="FIFO">FIFO</option><option value="LIFO">LIFO</option></select>
                     </div>
-                    <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="1"></div>
                 </div>
-                <label>Shape Parts</label>
+                <label>Advanced Compound Parts</label>
                 <div class="parts-container iParts" id="parts-${id}">
-                    <div class="part-row">
-                        <input type="number" class="pX" value="0"> <input type="number" class="pY" value="0"> <input type="number" class="pZ" value="0">
-                        <input type="number" class="pW" value="20"> <input type="number" class="pH" value="20"> <input type="number" class="pD" value="20">
-                    </div>
                 </div>
-                <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(${id})">+ Add Part</button>
+                <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(${id})">+ Add Sub-Part</button>
                 <canvas class="preview-canvas" id="prev-${id}"></canvas>
             `;
             list.appendChild(div);
@@ -287,12 +296,7 @@
             const cam = new BABYLON.ArcRotateCamera("pcam", -Math.PI/4, Math.PI/3, 4, BABYLON.Vector3.Zero(), scene);
             cam.attachControl(canv, true, false);
             new BABYLON.HemisphericLight("plight", new BABYLON.Vector3(1, 1, 0), scene);
-            const box = BABYLON.MeshBuilder.CreateBox("pbox", { size: 1 }, scene);
-            box.enableEdgesRendering();
-            box.edgesWidth = 10.0;
-            const mat = new BABYLON.StandardMaterial("pmat", scene);
-            box.material = mat;
-            previews[id] = { engine: pEngine, scene: scene, box: box, mat: mat };
+            previews[id] = { engine: pEngine, scene: scene, mesh: null, mat: new BABYLON.StandardMaterial("pmat", scene) };
             pEngine.runRenderLoop(() => scene.render());
             updatePreview(id);
         }
@@ -302,10 +306,27 @@
             if (!p) return;
             const row = document.getElementById(`item-${id}`);
             if (!row) return;
+            if (p.mesh) p.mesh.dispose();
+
             const w = parseFloat(row.querySelector(".iW").value), h = parseFloat(row.querySelector(".iH").value), d = parseFloat(row.querySelector(".iD").value);
+            const st = row.querySelector(".iST").value;
             const color = row.querySelector(".iColor").value;
             const maxDim = Math.max(w, h, d) || 1;
-            p.box.scaling = new BABYLON.Vector3(w/maxDim * 1.5, h/maxDim * 1.5, d/maxDim * 1.5);
+            
+            const scale = 1.5;
+            if (st === "SPHERE") {
+                p.mesh = BABYLON.MeshBuilder.CreateSphere("p", { diameterX: w/maxDim*scale, diameterY: d/maxDim*scale, diameterZ: h/maxDim*scale }, p.scene);
+            } else if (st === "TETRAHEDRON") {
+                p.mesh = BABYLON.MeshBuilder.CreatePolyhedron("p", { type: 0, size: w/maxDim*scale }, p.scene);
+            } else if (st === "CYLINDER") {
+                p.mesh = BABYLON.MeshBuilder.CreateCylinder("p", { height: d/maxDim*scale, diameterX: w/maxDim*scale, diameterZ: h/maxDim*scale }, p.scene);
+            } else {
+                p.mesh = BABYLON.MeshBuilder.CreateBox("p", { width: w/maxDim*scale, height: d/maxDim*scale, depth: h/maxDim*scale }, p.scene);
+            }
+            
+            p.mesh.enableEdgesRendering();
+            p.mesh.edgesWidth = 10.0;
+            p.mesh.material = p.mat;
             p.mat.diffuseColor = BABYLON.Color3.FromHexString(color);
         }
 
@@ -317,28 +338,38 @@
             new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
 
             if (!containerData || !containerData.dimensions) return scene;
-            const { dimensions, items, parts: contParts } = containerData;
+            const { dimensions, items, parts: contParts, shape_type: cst } = containerData;
             const bW = dimensions.w, bD = dimensions.h, bH = dimensions.d;
             camera.setTarget(new BABYLON.Vector3(bW/2, bH/2, bD/2));
             camera.radius = Math.max(bW, bH, bD) * 2.2;
 
-            if (contParts && contParts.length > 0) {
+            // Render Master Volume
+            let master;
+            if (cst === "SPHERE") {
+                master = BABYLON.MeshBuilder.CreateSphere("master", { diameterX: bW, diameterY: bH, diameterZ: bD }, scene);
+            } else if (cst === "TETRAHEDRON") {
+                master = BABYLON.MeshBuilder.CreatePolyhedron("master", { type: 0, size: bW }, scene);
+            } else if (cst === "CYLINDER") {
+                master = BABYLON.MeshBuilder.CreateCylinder("master", { height: bH, diameterX: bW, diameterZ: bD }, scene);
+            } else {
+                master = BABYLON.MeshBuilder.CreateBox("master", { width: bW, height: bH, depth: bD }, scene);
+            }
+            master.position = new BABYLON.Vector3(bW/2, bH/2, bD/2);
+            master.material = new BABYLON.StandardMaterial("mmat", scene);
+            master.material.wireframe = true; master.material.alpha = 0.1;
+
+            if (contParts && contParts.length > 1) { // Only render sub-parts if they are not the default single box
                 contParts.forEach((cp, cpIdx) => {
                     let mesh;
-                    const opts = { width: cp.dimensions.w, height: cp.dimensions.d, depth: cp.dimensions.h };
-                    
                     if (cp.shape_type === "SPHERE") {
                         mesh = BABYLON.MeshBuilder.CreateSphere("cp"+cpIdx, { diameterX: cp.dimensions.w, diameterY: cp.dimensions.d, diameterZ: cp.dimensions.h }, scene);
                     } else if (cp.shape_type === "CYLINDER") {
                         mesh = BABYLON.MeshBuilder.CreateCylinder("cp"+cpIdx, { height: cp.dimensions.d, diameterX: cp.dimensions.w, diameterZ: cp.dimensions.h }, scene);
-                    } else if (cp.shape_type === "CONE") {
-                        mesh = BABYLON.MeshBuilder.CreateCylinder("cp"+cpIdx, { height: cp.dimensions.d, diameterTop: 0, diameterBottom: cp.dimensions.w }, scene);
                     } else if (cp.shape_type === "TETRAHEDRON") {
                         mesh = BABYLON.MeshBuilder.CreatePolyhedron("cp"+cpIdx, { type: 0, size: cp.dimensions.w }, scene);
                     } else {
-                        mesh = BABYLON.MeshBuilder.CreateBox("cp"+cpIdx, opts, scene);
+                        mesh = BABYLON.MeshBuilder.CreateBox("cp"+cpIdx, { width: cp.dimensions.w, height: cp.dimensions.d, depth: cp.dimensions.h }, scene);
                     }
-                    
                     mesh.position = new BABYLON.Vector3(cp.offset.x + cp.dimensions.w/2, cp.offset.z + cp.dimensions.d/2, cp.offset.y + cp.dimensions.h/2);
                     mesh.material = new BABYLON.StandardMaterial("mcp"+cpIdx, scene);
                     mesh.material.wireframe = true; mesh.material.alpha = 0.2;
@@ -351,28 +382,25 @@
                 itemRows.forEach(row => colorMap[row.id] = row.querySelector(".iColor").value);
 
                 items.forEach((item, i) => {
-                    const hexColor = colorMap[`item-${item.id.split('_')[1]}`] || "#3498db";
+                    const rowIdNum = item.id.split('_')[1];
+                    const hexColor = colorMap[`item-${rowIdNum}`] || "#3498db";
                     if (item.parts && item.parts.length > 0) {
                         item.parts.forEach((p, pi) => {
-                            let box;
-                            const bOpts = { width: p.dimensions.w, height: p.dimensions.d, depth: p.dimensions.h };
-                            
+                            let mesh;
                             if (p.shape_type === "SPHERE") {
-                                box = BABYLON.MeshBuilder.CreateSphere(item.id+"p"+pi, { diameterX: p.dimensions.w, diameterY: p.dimensions.d, diameterZ: p.dimensions.h }, scene);
+                                mesh = BABYLON.MeshBuilder.CreateSphere(item.id+"p"+pi, { diameterX: p.dimensions.w, diameterY: p.dimensions.d, diameterZ: p.dimensions.h }, scene);
                             } else if (p.shape_type === "CYLINDER") {
-                                box = BABYLON.MeshBuilder.CreateCylinder(item.id+"p"+pi, { height: p.dimensions.d, diameterX: p.dimensions.w, diameterZ: p.dimensions.h }, scene);
-                            } else if (p.shape_type === "CONE") {
-                                box = BABYLON.MeshBuilder.CreateCylinder(item.id+"p"+pi, { height: p.dimensions.d, diameterTop: 0, diameterBottom: p.dimensions.w }, scene);
+                                mesh = BABYLON.MeshBuilder.CreateCylinder(item.id+"p"+pi, { height: p.dimensions.d, diameterX: p.dimensions.w, diameterZ: p.dimensions.h }, scene);
                             } else if (p.shape_type === "TETRAHEDRON") {
-                                box = BABYLON.MeshBuilder.CreatePolyhedron(item.id+"p"+pi, { type: 0, size: p.dimensions.w }, scene);
+                                mesh = BABYLON.MeshBuilder.CreatePolyhedron(item.id+"p"+pi, { type: 0, size: p.dimensions.w }, scene);
                             } else {
-                                box = BABYLON.MeshBuilder.CreateBox(item.id+"p"+pi, bOpts, scene);
+                                mesh = BABYLON.MeshBuilder.CreateBox(item.id+"p"+pi, { width: p.dimensions.w, height: p.dimensions.d, depth: p.dimensions.h }, scene);
                             }
 
-                            box.position = new BABYLON.Vector3(item.position.x + p.offset.x + p.dimensions.w/2, item.position.z + p.offset.z + p.dimensions.d/2, item.position.y + p.offset.y + p.dimensions.h/2);
-                            box.enableEdgesRendering(); box.edgesWidth = 15.0;
-                            box.material = new BABYLON.StandardMaterial("mat"+i+pi, scene);
-                            box.material.diffuseColor = BABYLON.Color3.FromHexString(hexColor);
+                            mesh.position = new BABYLON.Vector3(item.position.x + p.offset.x + p.dimensions.w/2, item.position.z + p.offset.z + p.dimensions.d/2, item.position.y + p.offset.y + p.dimensions.h/2);
+                            mesh.enableEdgesRendering(); mesh.edgesWidth = 15.0;
+                            mesh.material = new BABYLON.StandardMaterial("mat"+i+pi, scene);
+                            mesh.material.diffuseColor = BABYLON.Color3.FromHexString(hexColor);
                         });
                     }
                 });
@@ -388,7 +416,8 @@
             document.querySelectorAll("#cont-parts .part-row").forEach(r => {
                 contParts.push({
                     dx: parseFloat(r.querySelector(".cpX").value), dy: parseFloat(r.querySelector(".cpY").value), dz: parseFloat(r.querySelector(".cpZ").value),
-                    width: parseFloat(r.querySelector(".cpW").value), height: parseFloat(r.querySelector(".cpH").value), depth: parseFloat(r.querySelector(".cpD").value)
+                    width: parseFloat(r.querySelector(".cpW").value), height: parseFloat(r.querySelector(".cpH").value), depth: parseFloat(r.querySelector(".cpD").value),
+                    shape_type: r.querySelector(".cpST").value
                 });
             });
 
@@ -399,7 +428,8 @@
                 row.querySelectorAll(".iParts .part-row").forEach(pr => {
                     parts.push({
                         dx: parseFloat(pr.querySelector(".pX").value), dy: parseFloat(pr.querySelector(".pY").value), dz: parseFloat(pr.querySelector(".pZ").value),
-                        width: parseFloat(pr.querySelector(".pW").value), height: parseFloat(pr.querySelector(".pH").value), depth: parseFloat(pr.querySelector(".pD").value)
+                        width: parseFloat(pr.querySelector(".pW").value), height: parseFloat(pr.querySelector(".pH").value), depth: parseFloat(pr.querySelector(".pD").value),
+                        shape_type: pr.querySelector(".pST").value
                     });
                 });
 
@@ -408,13 +438,14 @@
                     items.push({
                         id: `it_${rowId}_${i}`,
                         width: parseFloat(row.querySelector(".iW").value),
-                        height: parseFloat(row.querySelector(".iD").value), // Vertical is D in my mapping fix
+                        height: parseFloat(row.querySelector(".iD").value),
                         depth: parseFloat(row.querySelector(".iH").value),
                         weight: parseFloat(row.querySelector(".iWeight").value),
                         max_stack_weight: parseFloat(row.querySelector(".iMax").value),
                         stop_id: parseInt(row.querySelector(".iStop").value),
                         strategy: row.querySelector(".iStrat").value,
-                        parts: parts
+                        shape_type: row.querySelector(".iST").value,
+                        parts: parts.length > 0 ? parts : null
                     });
                 }
             });
@@ -425,7 +456,8 @@
                     width: parseFloat(document.getElementById("cW").value),
                     height: parseFloat(document.getElementById("cD").value),
                     depth: parseFloat(document.getElementById("cH").value),
-                    parts: contParts
+                    shape_type: document.getElementById("cST").value,
+                    parts: contParts.length > 0 ? contParts : null
                 },
                 items: items,
                 mode: document.getElementById("mode").value,

@@ -227,7 +227,7 @@
     {
       "id": "033",
       "title": "Visualizer Update - Direct Shape UI",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Visual check of shape selection in viewer.html",
       "description": "Simplify UI to allow direct shape selection at item/container level."
     }
