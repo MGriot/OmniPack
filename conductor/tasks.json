@@ -192,8 +192,8 @@
     {
       "id": "027",
       "title": "Optional Feature Toggles (API & Logic)",
-      "status": "todo",
-      "verification_method": "Verify API ignores mixing/FIFO if toggled off",
+      "status": "done",
+      "verification_method": "Verify API handles enable_mixing, enable_strategy, enable_rotation",
       "description": "Make Mixing, FIFO/LIFO, and Rotation fully optional toggles in both global request and per-item config."
     },
     {

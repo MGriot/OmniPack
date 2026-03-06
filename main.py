@@ -63,7 +63,7 @@ class ItemInput(BaseModel):
     depth: float
     weight: float = 0.0
     max_stack_weight: float = 1000000.0
-    allow_mixing: bool = True 
+    allow_mixing: Optional[bool] = True 
     group_id: Optional[str] = None
     strategy: str = "NONE" 
     stop_id: int = 0 
@@ -85,7 +85,11 @@ class PackingRequest(BaseModel):
     iterations: int = 20 
     stability_factor: float = 1.0
     grasp_k: int = 1 
-    packing_versus: str = "LONGITUDINAL" 
+    packing_versus: str = "LONGITUDINAL"
+    # Global Toggles
+    enable_mixing: bool = True
+    enable_strategy: bool = True
+    enable_rotation: bool = True
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
@@ -115,16 +119,20 @@ async def pack_items_api(request: PackingRequest):
         rigid_groups = {} 
         
         for inp in request.items:
-            strat = LoadingStrategy.NONE
-            if inp.strategy.upper() == "FIFO": strat = LoadingStrategy.FIFO
-            elif inp.strategy.upper() == "LIFO": strat = LoadingStrategy.LIFO
-            
-            # Map rotations
-            if inp.allowed_rotations is not None:
+            # 1. Apply Rotation Constraint
+            if not request.enable_rotation:
+                arots = [Rotation.W_H_D]
+            elif inp.allowed_rotations is not None:
                 arots = [Rotation(r) for r in inp.allowed_rotations]
             else:
                 arots = [r for r in Rotation]
 
+            # 2. Apply Strategy Constraint
+            strat = LoadingStrategy.NONE
+            if request.enable_strategy:
+                if inp.strategy.upper() == "FIFO": strat = LoadingStrategy.FIFO
+                elif inp.strategy.upper() == "LIFO": strat = LoadingStrategy.LIFO
+            
             i_st = ShapeType[inp.shape_type.upper()] if inp.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
 
             it = Item(
@@ -134,9 +142,14 @@ async def pack_items_api(request: PackingRequest):
                 allowed_rotations=arots,
                 shape_type=i_st
             )
+            
+            # 3. Apply Mixing Logic
             g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]
             
-            if inp.allow_mixing:
+            # If global mixing disabled, OR item mixing disabled
+            effectively_mixable = request.enable_mixing and (inp.allow_mixing is not False)
+            
+            if effectively_mixable:
                 mix_pool.append([it]) 
             else:
                 if g_id not in rigid_groups: rigid_groups[g_id] = []
@@ -163,7 +176,7 @@ async def pack_items_api(request: PackingRequest):
         
         total_vol = sum(c.volume() for c in containers)
         used_vol = sum(sum(it.volume() for it in c.items) for c in containers)
-        utilization = (used_vol / total_vol) * 100
+        utilization = (used_vol / total_vol) * 100 if total_vol > 0 else 0
         
         all_scenarios.append({
             "id": f"Scenario_{i+1}",
