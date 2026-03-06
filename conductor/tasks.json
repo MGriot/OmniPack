@@ -185,8 +185,8 @@
     {
       "id": "026",
       "title": "Configurable Side-Filling Bias (The 'Versus')",
-      "status": "in_progress",
-      "verification_method": "Visual check of 'streak' vs 'side-fill' packing patterns",
+      "status": "done",
+      "verification_method": "pytest tests/test_packing_versus.py",
       "description": "Implement configurable scoring priority (e.g., fill width before depth) to prevent 'streak' packing and ensure side-to-side saturation."
     },
     {

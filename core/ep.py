@@ -18,57 +18,46 @@ class ExtremePoint:
         return hash((round(self.x, 3), round(self.y, 3), round(self.z, 3)))
 
 def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoint]:
-    """
-    Enhanced EP Generation from all parts of a compound item.
-    """
-    parts = item.get_rotated_parts() # List of ((rx, ry, rz), (rw, rh, rd), st)
     ix, iy, iz = item.position
+    iw, ih, id = item.get_dimension()
     existing = container.items
     
-    potential_pts = []
-    for (px, py, pz), (pw, ph, pd), st in parts:
-        # Global coordinates of this part
-        gx, gy, gz = ix + px, iy + py, iz + pz
-        
-        # 3 Forward points from EACH part
-        potential_pts.append([gx + pw, gy, gz])
-        potential_pts.append([gx, gy + ph, gz])
-        potential_pts.append([gx, gy, gz + pd])
-        # 1 Backward point from EACH part (for LIFO discovery)
-        potential_pts.append([gx, gy, gz])
+    potential_pts = [
+        [ix, iy, iz + id], # Z first
+        [ix, iy + ih, iz], # Y second
+        [ix + iw, iy, iz], # X third
+        [ix, iy, iz] # LIFO
+    ]
     
-    # Project each point to find its "stablest" coordinate
     final_pts = []
-    # Include existing items expanded into boxes
-    expanded_existing = []
-    for other in existing:
-        for (opx, opy, opz), (opw, oph, opd), ost in other.get_rotated_parts():
-            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd)))
-
     for p in potential_pts:
         px, py, pz = p
         
-        # Project PX
         max_x = 0.0
-        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+        for other in existing:
+            ox, oy, oz = other.position
+            ow, oh, od = other.get_dimension()
             if ox + ow <= px + 0.001 and (oy < py + 0.001 and oy + oh > py - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
                 max_x = max(max_x, ox + ow)
         
-        # Project PY
         max_y = 0.0
-        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+        for other in existing:
+            ox, oy, oz = other.position
+            ow, oh, od = other.get_dimension()
             if oy + oh <= py + 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
                 max_y = max(max_y, oy + oh)
 
-        # Project PZ (Forward)
         max_z = 0.0
-        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+        for other in existing:
+            ox, oy, oz = other.position
+            ow, oh, od = other.get_dimension()
             if oz + od <= pz + 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
                 max_z = max(max_z, oz + od)
         
-        # Project PZ (Backward)
         min_z = container.depth
-        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+        for other in existing:
+            ox, oy, oz = other.position
+            ow, oh, od = other.get_dimension()
             if oz >= pz - 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
                 min_z = min(min_z, oz)
 
@@ -87,64 +76,44 @@ def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoi
         if p_round not in seen:
             valid_pts.append(p)
             seen.add(p_round)
-            
     return valid_pts
 
 def get_valid_ep(container: Container, item: Item, eps: Set[ExtremePoint]) -> List[ExtremePoint]:
-    """Rigorous check for valid placement for compound items and containers."""
     valid_eps = []
-    expanded_existing = []
-    for other in container.items:
-        for (opx, opy, opz), (opw, oph, opd), ost in other.get_rotated_parts():
-            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd), ost))
+    existing = container.items
+    cw, ch, cd = container.width, container.height, container.depth
+    cst = container.shape_type
 
     for ep in eps:
-        item.position = ep.to_tuple()
-        parts = item.get_rotated_parts()
+        ax, ay, az = ep.to_tuple()
+        aw, ah, ad = item.get_dimension()
+        ast = item.shape_type
         
-        item_valid = True
-        for (px, py, pz), (pw, ph, pd), ast in parts:
-            ax, ay, az = ep.x + px, ep.y + py, ep.z + pz
+        # In Container Check (Reuse logic from accelerated if possible, but keep it simple here)
+        if not (ax >= -0.001 and ax + aw <= cw + 0.001 and
+                ay >= -0.001 and ay + ah <= ch + 0.001 and
+                az >= -0.001 and az + ad <= cd + 0.001):
+            continue
             
-            # Boundary check against container parts
-            in_container = False
-            for cp in container.parts:
-                if (ax >= cp.dx - 0.001 and ax + pw <= cp.dx + cp.width + 0.001 and
-                    ay >= cp.dy - 0.001 and ay + ph <= cp.dy + cp.height + 0.001 and
-                    az >= cp.dz - 0.001 and az + pd <= cp.dz + cp.depth + 0.001):
-                    in_container = True
-                    break
+        collision = False
+        for other in existing:
+            ox, oy, oz = other.position
+            ow, oh, od = other.get_dimension()
+            ost = other.shape_type
             
-            if not in_container:
-                item_valid = False; break
+            # Simple Box-Box Early Exit
+            if not (ax >= ox + ow - 0.001 or ax + aw <= ox + 0.001 or
+                    ay >= oy + oh - 0.001 or ay + ah <= oy + 0.001 or
+                    az >= oz + od - 0.001 or az + ad <= oz + 0.001):
                 
-            # Collision check
-            collision = False
-            for (ox, oy, oz), (ow, oh, od), ost in expanded_existing:
-                # Early exit / Bounding box check
-                if (ax < ox + ow - 0.001 and ax + pw > ox + 0.001 and
-                    ay < oy + oh - 0.001 and ay + ph > oy + 0.001 and
-                    az < oz + od - 0.001 and az + pd > oz + 0.001):
-                    
-                    # If both are BOX (0), it's a collision
-                    if ast == 0 and ost == 0:
-                        collision = True; break
-                    
-                    # For other shapes, use the same logic as accelerated.py (simplified here)
-                    if ast == 1 and ost == 1: # Sphere-Sphere
-                        r1, r2 = pw/2, ow/2
-                        dist_sq = (ax+r1-(ox+r2))**2 + (ay+r1-(oy+r2))**2 + (az+r1-(oz+r2))**2
-                        if dist_sq < (r1+r2)**2 - 0.001:
-                            collision = True; break
-                    elif ast == 1 or ost == 1: # Sphere-Box
-                        # Just use bounding box for now to avoid too much complexity in Python path
-                        collision = True; break 
-                    else:
-                        collision = True; break
-            if collision:
-                item_valid = False; break
+                if ast == 0 and ost == 0: collision = True; break
+                if ast == 1 and ost == 1: # Sphere-Sphere
+                    r1, r2 = aw/2, ow/2
+                    dist_sq = (ax+r1-(ox+r2))**2 + (ay+r1-(oy+r2))**2 + (az+r1-(oz+r2))**2
+                    if dist_sq < (r1+r2)**2 - 0.001: collision = True; break
+                else: # Sphere-Box or Box-Sphere
+                    collision = True; break # Conservative
         
-        if item_valid:
+        if not collision:
             valid_eps.append(ep)
-                
     return valid_eps

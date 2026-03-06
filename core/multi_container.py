@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple
 from .models import Item, Container, PackingVersus
 from .engine import Level1Engine
 from .engine_v2 import Level2Engine
@@ -7,62 +7,63 @@ from .mcts import MonteCarloOptimizer
 import copy
 
 class MultiContainerEngine:
-    def __init__(self, base_container: Container):
+    """
+    Handles packing items into multiple containers if they don't fit in one.
+    """
+    def __init__(self, base_container: Container, versus: PackingVersus = PackingVersus.LONGITUDINAL):
         self.base_container = base_container
+        self.versus = versus
 
-    def _get_engine(self, container: Container, mode: str, stability_factor=1.0, versus: PackingVersus = PackingVersus.LONGITUDINAL):
+    def _get_engine(self, container: Container, mode="level2", stability_factor=1.0):
         if mode == "level1":
-            return Level1Engine(container, stability_factor=stability_factor)
-        return Level2Engine(container, stability_factor=stability_factor, versus=versus)
+            return Level1Engine(container, stability_factor=stability_factor, versus=self.versus)
+        return Level2Engine(container, stability_factor=stability_factor, versus=self.versus)
 
-    def pack_all(self, items: List[Item], strategy: str = "minimize_out", mode: str = "level2", stability_factor=1.0, grasp_k: int = 1, versus: PackingVersus = PackingVersus.LONGITUDINAL) -> List[Container]:
-        containers = []
+    def pack_all(self, items: List[Item], strategy="minimize_out", mode="level2", stability_factor=1.0, grasp_k=1) -> List[Container]:
+        """
+        Main entry point for multi-container packing.
+        Returns a list of Container objects with items assigned.
+        """
         remaining_items = copy.deepcopy(items)
-        
-        # 1. Primary Container
-        c1 = Container(
-            self.base_container.id + "_Primary",
-            self.base_container.width,
-            self.base_container.height,
-            self.base_container.depth
-        )
-        
-        if mode == "genetic":
-            optimizer = GeneticOptimizer(c1, remaining_items, population_size=10, generations=5, stability_factor=stability_factor)
-            packed, _ = optimizer.evolve()
-            c1.items = packed
-        elif mode == "mcts":
-            optimizer = MonteCarloOptimizer(c1, remaining_items, time_limit=3.0, stability_factor=stability_factor)
-            packed = optimizer.search()
-            c1.items = packed
-        else:
-            engine = self._get_engine(c1, mode, stability_factor=stability_factor, versus=versus)
-            engine.pack(remaining_items, grasp_k=grasp_k)
-        
-        packed_ids = {it.id for it in c1.items}
-        unpacked = [it for it in remaining_items if it.id not in packed_ids]
-        
-        containers.append(c1)
-        if not unpacked:
-            return containers
+        packed_containers = []
+        container_count = 0
 
-        # 2. Strategy Logic for overflow
-        if strategy == "minimize_out":
-            c2 = Container(self.base_container.id + "_Overflow", self.base_container.width, self.base_container.height, self.base_container.depth)
-            engine2 = self._get_engine(c2, mode if mode in ["level1", "level2"] else "level2", stability_factor=stability_factor, versus=versus)
-            engine2.pack(unpacked, grasp_k=grasp_k)
-            if c2.items:
-                containers.append(c2)
-            
-        elif strategy == "optimal_balance":
-            max_w = max((i.width for i in unpacked), default=self.base_container.width)
-            total_vol = sum(i.volume() for i in unpacked)
-            suggested_h = max(max((i.height for i in unpacked), default=0), total_vol / (max_w * self.base_container.depth))
-            
-            c2 = Container("Suggested_Space", max_w, suggested_h, self.base_container.depth)
-            engine2 = self._get_engine(c2, "level2", stability_factor=stability_factor, versus=versus)
-            engine2.pack(unpacked, grasp_k=grasp_k)
-            if c2.items:
-                containers.append(c2)
+        while remaining_items:
+            container_count += 1
+            current_container = Container(
+                id=f"{self.base_container.id}_{container_count}",
+                width=self.base_container.width,
+                height=self.base_container.height,
+                depth=self.base_container.depth,
+                max_weight=self.base_container.max_weight,
+                shape_type=self.base_container.shape_type
+            )
 
-        return containers
+            # Choose engine / optimizer
+            if mode == "genetic":
+                optimizer = GeneticOptimizer(current_container, remaining_items, stability_factor=stability_factor)
+                packed_items, _ = optimizer.evolve()
+            elif mode == "mcts":
+                optimizer = MonteCarloOptimizer(current_container, remaining_items, stability_factor=stability_factor)
+                packed_items = optimizer.search()
+            else:
+                engine = self._get_engine(current_container, mode=mode, stability_factor=stability_factor)
+                unpacked = engine.pack(remaining_items, grasp_k=grasp_k)
+                packed_items = current_container.items
+
+            packed_ids = {it.id for it in packed_items}
+            remaining_items = [it for it in remaining_items if it.id not in packed_ids]
+            
+            if not packed_items:
+                # If we couldn't pack even one item, prevent infinite loop
+                break
+                
+            packed_containers.append(current_container)
+            
+            # If strategy is just to fill one and stop, we'd exit here, but "pack_all" implies multiple
+            if strategy == "suggest_extra" and container_count >= 1:
+                # In this mode, maybe we adjust the size of the next container? 
+                # For now, we keep it simple.
+                pass
+
+        return packed_containers

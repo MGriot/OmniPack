@@ -56,15 +56,6 @@ async def api_status():
         "status": "stable"
     }
 
-class PartInput(BaseModel):
-    dx: float
-    dy: float
-    dz: float
-    width: float
-    height: float
-    depth: float
-    shape_type: str = "BOX"
-
 class ItemInput(BaseModel):
     id: str
     width: float
@@ -77,16 +68,14 @@ class ItemInput(BaseModel):
     strategy: str = "NONE" 
     stop_id: int = 0 
     allowed_rotations: Optional[List[int]] = None 
-    shape_type: str = "BOX" # NEW: Direct shape selection
-    parts: Optional[List[PartInput]] = None 
+    shape_type: str = "BOX"
 
 class ContainerInput(BaseModel):
     id: str
     width: float
     height: float
     depth: float
-    shape_type: str = "BOX" # NEW: Direct container shape selection
-    parts: Optional[List[PartInput]] = None 
+    shape_type: str = "BOX"
 
 class PackingRequest(BaseModel):
     container: ContainerInput
@@ -100,23 +89,16 @@ class PackingRequest(BaseModel):
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
-    from core.models import LoadingStrategy, Rotation, PackingVersus, ShapePart, ShapeType
+    from core.models import LoadingStrategy, Rotation, PackingVersus, ShapeType
     
     c_st = ShapeType[request.container.shape_type.upper()] if request.container.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
     
-    custom_container_parts = []
-    if request.container.parts:
-        for p in request.container.parts:
-            st = ShapeType[p.shape_type.upper()] if p.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
-            custom_container_parts.append(ShapePart(p.dx, p.dy, p.dz, p.width, p.height, p.depth, st))
-
     base_container = Container(
         request.container.id, 
         request.container.width, 
         request.container.height, 
         request.container.depth,
-        shape_type=c_st,
-        parts=custom_container_parts
+        shape_type=c_st
     )
     
     # Map versus
@@ -145,19 +127,12 @@ async def pack_items_api(request: PackingRequest):
 
             i_st = ShapeType[inp.shape_type.upper()] if inp.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
 
-            custom_parts = []
-            if inp.parts:
-                for p in inp.parts:
-                    st = ShapeType[p.shape_type.upper()] if p.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
-                    custom_parts.append(ShapePart(p.dx, p.dy, p.dz, p.width, p.height, p.depth, st))
-
             it = Item(
                 id=inp.id, width=inp.width, height=inp.height, depth=inp.depth, 
                 weight=inp.weight, max_stack_weight=inp.max_stack_weight,
                 group_id=inp.group_id, strategy=strat, stop_id=inp.stop_id,
                 allowed_rotations=arots,
-                shape_type=i_st,
-                parts=custom_parts
+                shape_type=i_st
             )
             g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]
             
@@ -177,7 +152,7 @@ async def pack_items_api(request: PackingRequest):
             for it in unit:
                 final_list.append(it)
 
-        multi_engine = MultiContainerEngine(base_container)
+        multi_engine = MultiContainerEngine(base_container, versus=versus)
         containers = multi_engine.pack_all(
             final_list, 
             strategy=request.strategy, 
