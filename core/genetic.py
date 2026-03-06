@@ -6,17 +6,17 @@ from .engine import Level1Engine
 from .engine_v2 import Level2Engine
 
 class GeneticOptimizer:
-    def __init__(self, container: Container, items: List[Item], population_size=20, generations=10, mode="level2", stability_mode=True):
+    def __init__(self, container: Container, items: List[Item], population_size=20, generations=10, mode="level2", stability_factor=1.0):
         self.container = container
         self.items = items
         self.population_size = population_size
         self.generations = generations
         self.mode = mode
-        self.stability_mode = stability_mode
+        self.stability_factor = stability_factor
 
     def _get_engine(self, container: Container):
-        if self.mode == "level1": return Level1Engine(container, stability_mode=self.stability_mode)
-        return Level2Engine(container, stability_mode=self.stability_mode)
+        if self.mode == "level1": return Level1Engine(container, stability_factor=self.stability_factor)
+        return Level2Engine(container, stability_factor=self.stability_factor)
 
     def _create_individual(self) -> List[int]:
         indices = list(range(len(self.items)))

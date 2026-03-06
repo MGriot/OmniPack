@@ -19,63 +19,70 @@ class ExtremePoint:
 
 def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoint]:
     """
-    Enhanced EP Generation (Projected Extreme Points).
-    Instead of just 3 points, we discover all stable corners by projecting
-    item boundaries against existing geometry.
+    Enhanced EP Generation from all parts of a compound item.
     """
-    w, h, d = item.get_dimension()
-    x, y, z = item.position
+    parts = item.get_rotated_parts() # List of ((rx, ry, rz), (rw, rh, rd))
+    ix, iy, iz = item.position
     existing = container.items
     
-    # 1. Start with the 3 canonical points
-    potential_pts = [
-        [x + w, y, z],
-        [x, y + h, z],
-        [x, y, z + d]
-    ]
+    potential_pts = []
+    for (px, py, pz), (pw, ph, pd) in parts:
+        # Global coordinates of this part
+        gx, gy, gz = ix + px, iy + py, iz + pz
+        
+        # 3 Forward points from EACH part
+        potential_pts.append([gx + pw, gy, gz])
+        potential_pts.append([gx, gy + ph, gz])
+        potential_pts.append([gx, gy, gz + pd])
+        # 1 Backward point from EACH part (for LIFO discovery)
+        potential_pts.append([gx, gy, gz])
     
-    # 2. Project each point to find its "stablest" coordinate (nearest support)
-    # This prevents the drift where the engine ignores floor gaps.
+    # Project each point to find its "stablest" coordinate
     final_pts = []
+    # Include existing items expanded into boxes
+    expanded_existing = []
+    for other in existing:
+        for (opx, opy, opz), (opw, oph, opd) in other.get_rotated_parts():
+            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd)))
+
     for p in potential_pts:
         px, py, pz = p
         
-        # Project PX: find highest x-bound below/beside it
+        # Project PX
         max_x = 0.0
-        for other in existing:
-            ow, oh, od = other.get_dimension()
-            ox, oy, oz = other.position
-            # If 'other' is behind the point in X and overlaps in Y, Z
-            if ox + ow <= px and (oy < py + 0.001 and oy + oh > py - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
+        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+            if ox + ow <= px + 0.001 and (oy < py + 0.001 and oy + oh > py - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
                 max_x = max(max_x, ox + ow)
         
         # Project PY
         max_y = 0.0
-        for other in existing:
-            ow, oh, od = other.get_dimension()
-            ox, oy, oz = other.position
-            if oy + oh <= py and (ox < px + 0.001 and ox + ow > px - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
+        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+            if oy + oh <= py + 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oz < pz + 0.001 and oz + od > pz - 0.001):
                 max_y = max(max_y, oy + oh)
 
-        # Project PZ
+        # Project PZ (Forward)
         max_z = 0.0
-        for other in existing:
-            ow, oh, od = other.get_dimension()
-            ox, oy, oz = other.position
-            if oz + od <= pz and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
+        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+            if oz + od <= pz + 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
                 max_z = max(max_z, oz + od)
+        
+        # Project PZ (Backward)
+        min_z = container.depth
+        for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+            if oz >= pz - 0.001 and (ox < px + 0.001 and ox + ow > px - 0.001) and (oy < py + 0.001 and oy + oh > py - 0.001):
+                min_z = min(min_z, oz)
 
-        # Add the projected versions to ensure we find "tucked" spots
         final_pts.append(ExtremePoint(px, py, pz))
         if px > max_x: final_pts.append(ExtremePoint(max_x, py, pz))
         if py > max_y: final_pts.append(ExtremePoint(px, max_y, pz))
         if pz > max_z: final_pts.append(ExtremePoint(px, py, max_z))
+        if pz < min_z: final_pts.append(ExtremePoint(px, py, min_z))
 
-    # Filter out duplicates and points outside container
     valid_pts = []
     seen = set()
     for p in final_pts:
-        if p.x >= container.width or p.y >= container.height or p.z >= container.depth: continue
+        if p.x > container.width or p.y > container.height or p.z > container.depth: continue
+        if p.x < 0 or p.y < 0 or p.z < 0: continue
         p_round = (round(p.x, 3), round(p.y, 3), round(p.z, 3))
         if p_round not in seen:
             valid_pts.append(p)
@@ -84,31 +91,44 @@ def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoi
     return valid_pts
 
 def get_valid_ep(container: Container, item: Item, eps: Set[ExtremePoint]) -> List[ExtremePoint]:
-    """Rigorous check for valid placement including collision and boundaries."""
+    """Rigorous check for valid placement for compound items and containers."""
     valid_eps = []
-    w, h, d = item.get_dimension()
-    
+    expanded_existing = []
+    for other in container.items:
+        for (opx, opy, opz), (opw, oph, opd) in other.get_rotated_parts():
+            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd)))
+
     for ep in eps:
-        # 1. Boundary check
-        if (ep.x + w > container.width + 0.001 or 
-            ep.y + h > container.height + 0.001 or 
-            ep.z + d > container.depth + 0.001):
-            continue
-            
-        # 2. Collision check
-        collision = False
-        for other in container.items:
-            ow, oh, od = other.get_dimension()
-            ox, oy, oz = other.position
-            
-            # AABB intersection with epsilon
-            if (ep.x < ox + ow - 0.001 and ep.x + w > ox + 0.001 and
-                ep.y < oy + oh - 0.001 and ep.y + h > oy + 0.001 and
-                ep.z < oz + od - 0.001 and ep.z + d > oz + 0.001):
-                collision = True
-                break
+        item.position = ep.to_tuple()
+        parts = item.get_rotated_parts()
         
-        if not collision:
+        item_valid = True
+        for (px, py, pz), (pw, ph, pd) in parts:
+            ax, ay, az = ep.x + px, ep.y + py, ep.z + pz
+            
+            # Boundary check against container parts
+            in_container = False
+            for cp in container.parts:
+                if (ax >= cp.dx - 0.001 and ax + pw <= cp.dx + cp.width + 0.001 and
+                    ay >= cp.dy - 0.001 and ay + ph <= cp.dy + cp.height + 0.001 and
+                    az >= cp.dz - 0.001 and az + pd <= cp.dz + cp.depth + 0.001):
+                    in_container = True
+                    break
+            
+            if not in_container:
+                item_valid = False; break
+                
+            # Collision check
+            collision = False
+            for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+                if (ax < ox + ow - 0.001 and ax + pw > ox + 0.001 and
+                    ay < oy + oh - 0.001 and ay + ph > oy + 0.001 and
+                    az < oz + od - 0.001 and az + pd > oz + 0.001):
+                    collision = True; break
+            if collision:
+                item_valid = False; break
+        
+        if item_valid:
             valid_eps.append(ep)
                 
     return valid_eps

@@ -13,8 +13,14 @@ from core.genetic import GeneticOptimizer
 from core.mcts import MonteCarloOptimizer
 from core.multi_container import MultiContainerEngine
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+import os
+
 app = FastAPI(title="OmniPack API")
 
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,13 +38,32 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc), "trace": trace}
     )
 
-@app.get("/")
-async def root():
+# Get absolute path to viewer.html
+VIEWER_PATH = os.path.join(os.path.dirname(__file__), "viewer.html")
+
+# Serve the visualizer at the root URL
+@app.get("/", include_in_schema=False)
+async def get_viewer():
+    if not os.path.exists(VIEWER_PATH):
+        return JSONResponse(status_code=404, content={"detail": f"viewer.html not found at {VIEWER_PATH}"})
+    return FileResponse(VIEWER_PATH)
+
+@app.get("/api-status")
+async def api_status():
     return {
         "message": "OmniPack API is running.",
         "engines": ["level1", "level2", "genetic", "mcts"],
         "status": "stable"
     }
+
+class PartInput(BaseModel):
+    dx: float
+    dy: float
+    dz: float
+    width: float
+    height: float
+    depth: float
+    shape_type: str = "BOX"
 
 class ItemInput(BaseModel):
     id: str
@@ -49,12 +74,17 @@ class ItemInput(BaseModel):
     max_stack_weight: float = 1000000.0
     allow_mixing: bool = True 
     group_id: Optional[str] = None
+    strategy: str = "NONE" # NEW: NONE, FIFO, LIFO
+    stop_id: int = 0 # NEW: Discharge order
+    allowed_rotations: Optional[List[int]] = None # NEW: List of Rotation enum indices
+    parts: Optional[List[PartInput]] = None # NEW: Custom shapes
 
 class ContainerInput(BaseModel):
     id: str
     width: float
     height: float
     depth: float
+    parts: Optional[List[PartInput]] = None # NEW: Custom container shapes
 
 class PackingRequest(BaseModel):
     container: ContainerInput
@@ -63,57 +93,89 @@ class PackingRequest(BaseModel):
     strategy: str = "minimize_out" 
     iterations: int = 20 
     stability_factor: float = 1.0
+    grasp_k: int = 1 # NEW: Diversity factor
+    packing_versus: str = "LONGITUDINAL" # NEW: LONGITUDINAL, LATERAL, FLOOR_FIRST
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
+    from core.models import LoadingStrategy, Rotation, PackingVersus, ShapePart, ShapeType
+    
+    custom_container_parts = []
+    if request.container.parts:
+        for p in request.container.parts:
+            st = ShapeType[p.shape_type.upper()] if p.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
+            custom_container_parts.append(ShapePart(p.dx, p.dy, p.dz, p.width, p.height, p.depth, st))
+
     base_container = Container(
         request.container.id, 
         request.container.width, 
         request.container.height, 
-        request.container.depth
+        request.container.depth,
+        parts=custom_container_parts
     )
     
+    # Map versus
+    versus = PackingVersus.LONGITUDINAL
+    if request.packing_versus.upper() == "LATERAL": versus = PackingVersus.LATERAL
+    elif request.packing_versus.upper() == "FLOOR_FIRST": versus = PackingVersus.FLOOR_FIRST
+
     all_scenarios = []
     
     for i in range(request.iterations):
         final_list = []
-        if i == 0:
-            for inp in request.items:
-                final_list.append(Item(
-                    id=inp.id, width=inp.width, height=inp.height, depth=inp.depth, 
-                    weight=inp.weight, max_stack_weight=inp.max_stack_weight,
-                    group_id=inp.group_id
-                ))
-        else:
-            mix_pool = []
-            rigid_groups = {} 
+        
+        mix_pool = []
+        rigid_groups = {} 
+        
+        for inp in request.items:
+            strat = LoadingStrategy.NONE
+            if inp.strategy.upper() == "FIFO": strat = LoadingStrategy.FIFO
+            elif inp.strategy.upper() == "LIFO": strat = LoadingStrategy.LIFO
             
-            for inp in request.items:
-                it = Item(
-                    id=inp.id, width=inp.width, height=inp.height, depth=inp.depth, 
-                    weight=inp.weight, max_stack_weight=inp.max_stack_weight,
-                    group_id=inp.group_id
-                )
-                g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]
-                
-                if inp.allow_mixing:
-                    mix_pool.append([it]) 
-                else:
-                    if g_id not in rigid_groups: rigid_groups[g_id] = []
-                    rigid_groups[g_id].append(it)
+            # Map rotations
+            if inp.allowed_rotations is not None:
+                arots = [Rotation(r) for r in inp.allowed_rotations]
+            else:
+                arots = [r for r in Rotation]
+
+            custom_parts = []
+            if inp.parts:
+                for p in inp.parts:
+                    st = ShapeType[p.shape_type.upper()] if p.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
+                    custom_parts.append(ShapePart(p.dx, p.dy, p.dz, p.width, p.height, p.depth, st))
+
+            it = Item(
+                id=inp.id, width=inp.width, height=inp.height, depth=inp.depth, 
+                weight=inp.weight, max_stack_weight=inp.max_stack_weight,
+                group_id=inp.group_id, strategy=strat, stop_id=inp.stop_id,
+                allowed_rotations=arots,
+                parts=custom_parts
+            )
+            g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]
             
-            all_units = mix_pool + list(rigid_groups.values())
+            if inp.allow_mixing:
+                mix_pool.append([it]) 
+            else:
+                if g_id not in rigid_groups: rigid_groups[g_id] = []
+                rigid_groups[g_id].append(it)
+        
+        all_units = mix_pool + list(rigid_groups.values())
+        
+        # Only shuffle if it's NOT the first iteration (keep original order once)
+        if i > 0:
             random.shuffle(all_units)
-            for unit in all_units:
-                for it in unit:
-                    final_list.append(it)
+            
+        for unit in all_units:
+            for it in unit:
+                final_list.append(it)
 
         multi_engine = MultiContainerEngine(base_container)
         containers = multi_engine.pack_all(
             final_list, 
             strategy=request.strategy, 
             mode=request.mode, 
-            stability_factor=request.stability_factor
+            stability_factor=request.stability_factor,
+            grasp_k=request.grasp_k
         )
         
         total_vol = sum(c.volume() for c in containers)

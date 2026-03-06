@@ -31,11 +31,11 @@ class MonteCarloOptimizer:
     Intelligent Search Engine using Monte Carlo Tree Search.
     Mimics 'thinking' by simulating multiple possible futures before placing an item.
     """
-    def __init__(self, base_container: Container, items: List[Item], time_limit=2.0, stability_mode=True):
+    def __init__(self, base_container: Container, items: List[Item], time_limit=2.0, stability_factor=1.0):
         self.base_container = base_container
         self.items = items
         self.time_limit = time_limit
-        self.stability_mode = stability_mode
+        self.stability_factor = stability_factor
 
     def _simulate(self, node: MCTSNode) -> float:
         """Rollout: Fast completion of packing using a heuristic (Level 2 engine)."""
@@ -43,7 +43,7 @@ class MonteCarloOptimizer:
         temp_items = copy.deepcopy(node.items_remaining)
         random.shuffle(temp_items)
         
-        engine = Level2Engine(temp_container, stability_mode=self.stability_mode)
+        engine = Level2Engine(temp_container, stability_factor=self.stability_factor)
         engine.pack(temp_items)
         
         # Reward = % of total volume filled
@@ -63,7 +63,7 @@ class MonteCarloOptimizer:
                 new_items = [it for j, it in enumerate(node.items_remaining) if i != j]
                 # Pre-calculate a placement for the chosen item using Level 2 logic
                 temp_c = copy.deepcopy(node.container)
-                engine = Level2Engine(temp_c, stability_mode=self.stability_mode)
+                engine = Level2Engine(temp_c, stability_factor=self.stability_factor)
                 engine.pack([copy.deepcopy(node.items_remaining[i])])
                 
                 child = MCTSNode(new_items, temp_c, parent=node)
@@ -106,7 +106,7 @@ class MonteCarloOptimizer:
         final_sequence = best_path_items + remaining
         
         final_c = Container("MCTS_Result", self.base_container.width, self.base_container.height, self.base_container.depth)
-        engine = Level2Engine(final_c, stability_mode=self.stability_mode)
+        engine = Level2Engine(final_c, stability_factor=self.stability_factor)
         engine.pack(final_sequence)
         
         return final_c.items

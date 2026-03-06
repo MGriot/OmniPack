@@ -1,11 +1,12 @@
 [project]
 name = "omnipack"
 version = "0.1.0"
-description = "Add your description here"
+description = "3D Bin Packing Optimization Engine"
 readme = "README.md"
 authors = [
     { name = "Matteo", email = "matteo.griot@gmail.com" }
 ]
+license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.135.1",
@@ -14,8 +15,61 @@ dependencies = [
     "numpy>=2.4.2",
     "pytest>=9.0.2",
     "uvicorn>=0.41.0",
+    "toga>=0.5.3",
+]
+
+[tool.briefcase]
+project_name = "OmniPack"
+bundle = "com.omnipack"
+version = "0.1.0"
+url = "https://github.com/omnipack/omnipack"
+author = "Matteo"
+author_email = "matteo.griot@gmail.com"
+
+[tool.briefcase.app.omnipack]
+formal_name = "OmniPack"
+description = "3D Bin Packing Engine"
+sources = ["src/omnipack", "core", "main.py", "viewer.html"]
+requires = [
+    "fastapi",
+    "uvicorn",
+    "numpy",
+    "numba",
+]
+
+[tool.briefcase.app.omnipack.macOS]
+universal_build = true
+requires = [
+    "toga-cocoa>=0.5.3",
+]
+
+[tool.briefcase.app.omnipack.windows]
+requires = [
+    "toga-winforms>=0.5.3",
+]
+
+[tool.briefcase.app.omnipack.linux]
+requires = [
+    "toga-gtk>=0.5.3",
+]
+
+[tool.briefcase.app.omnipack.android]
+requires = [
+    "toga-android>=0.5.3",
+]
+
+[tool.briefcase.app.omnipack.iOS]
+requires = [
+    "toga-iOS>=0.5.3",
 ]
 
 [build-system]
 requires = ["uv_build>=0.8.8,<0.9.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "briefcase>=0.3.26",
+    "maturin>=1.12.6",
+    "toga>=0.5.3",
+]

@@ -1,4 +1,4 @@
-from core.models import Item, Container, Rotation
+from core.models import Item, Container, Rotation, ShapeType
 
 def test_item_volume():
     item = Item("box1", 10, 20, 30)
@@ -21,3 +21,10 @@ def test_container_remaining_volume():
     item = Item("box1", 10, 20, 30)
     container.items.append(item)
     assert container.remaining_volume() == 1_000_000 - 6000
+
+def test_shape_type_propagation():
+    item = Item("sphere1", 10, 10, 10, shape_type=ShapeType.SPHERE)
+    assert item.parts[0].shape_type == ShapeType.SPHERE
+    
+    container = Container("cont1", 100, 100, 100, shape_type=ShapeType.CYLINDER)
+    assert container.parts[0].shape_type == ShapeType.CYLINDER

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OmniPack 3D Pro - Stable Edition</title>
+    <title>OmniPack 3D Pro - Advanced Edition</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         body, html { width: 100%; height: 100%; margin: 0; overflow: hidden; }
@@ -9,7 +9,7 @@
         #ui { 
             position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.9); 
             color: white; padding: 20px; font-family: 'Segoe UI', sans-serif; 
-            border-radius: 12px; width: 360px; max-height: 90vh; overflow-y: auto;
+            border-radius: 12px; width: 400px; max-height: 95vh; overflow-y: auto;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 10;
         }
         .section { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
@@ -25,7 +25,7 @@
             border: none; border-radius: 6px; font-weight: bold; transition: background 0.2s;
         }
         button:hover { background: #0056b3; }
-        button.add { background: #6c757d; padding: 5px; margin-bottom: 15px; font-size: 0.8em; }
+        button.add { background: #6c757d; padding: 5px; margin-bottom: 10px; font-size: 0.8em; }
         .item-row { background: #1a1a1a; padding: 10px; margin-bottom: 10px; border-radius: 6px; position: relative; border-left: 4px solid #007bff; }
         .remove-btn { position: absolute; right: 5px; top: 5px; color: #ff4d4d; cursor: pointer; font-weight: bold; }
         #stats { margin-top: 15px; font-size: 0.95em; color: #28a745; line-height: 1.4; white-space: pre-wrap; }
@@ -40,69 +40,121 @@
         .nav-btn { background: #444; border: none; color: white; padding: 5px 15px; border-radius: 15px; cursor: pointer; }
         .toggle-row { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; font-size: 0.85em; }
         .toggle-row input { width: auto; margin: 0; }
+
+        .parts-container { background: #000; padding: 5px; margin-top: 5px; border-radius: 4px; border: 1px dashed #444; }
+        .part-row { display: flex; gap: 2px; margin-bottom: 2px; font-size: 0.75em; align-items: center; }
+        .part-row input { margin-bottom: 0; padding: 2px; }
+        .part-label { width: 40px; color: #888; flex-shrink: 0; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h2 style="margin-top:0; color: #007bff;">OmniPack 3D Pro</h2>
+        <h2 style="margin-top:0; color: #007bff;">OmniPack Advanced</h2>
         
         <div class="section">
-            <label>Space (W x H x D)</label>
+            <label>Master Container (W x H x D)</label>
             <div class="row">
                 <input type="number" id="cW" value="100">
                 <input type="number" id="cH" value="50">
                 <input type="number" id="cD" value="50">
             </div>
+            <label>Sub-Volumes (Irregular Container)</label>
+            <div id="cont-parts" class="parts-container">
+                <div class="part-row" id="cp-row-init">
+                    <select class="cpST" style="width:60px; font-size:0.7em"><option value="BOX">BOX</option></select>
+                    <input type="number" step="0.1" class="cpX" placeholder="X" value="0">
+                    <input type="number" step="0.1" class="cpY" placeholder="Y" value="0">
+                    <input type="number" step="0.1" class="cpZ" placeholder="Z" value="0">
+                    <input type="number" step="0.1" class="cpW" placeholder="W" value="100">
+                    <input type="number" step="0.1" class="cpH" placeholder="H" value="50">
+                    <input type="number" step="0.1" class="cpD" placeholder="D" value="50">
+                    <span class="remove-btn" style="position:relative; margin-left:5px" onclick="this.parentElement.remove()">×</span>
+                </div>
+            </div>
+            <button class="add" style="margin-top:5px" onclick="addContPart()">+ Add Volume Part</button>
         </div>
 
         <div class="section">
-            <label>Items & Physical Constraints</label>
+            <label>Item Catalog</label>
             <div id="items-list">
                 <div class="item-row" id="item-0">
                     <span class="remove-btn" onclick="removeItem(0)">×</span>
-                    <label>Dimensions & Color</label>
                     <div class="row" style="align-items: center;">
-                        <input type="number" class="iW" value="30" onchange="updatePreview(0)">
-                        <input type="number" class="iH" value="30" onchange="updatePreview(0)">
-                        <input type="number" class="iD" value="30" onchange="updatePreview(0)">
-                        <input type="color" class="iColor" value="#3498db" onchange="updatePreview(0)">
+                        <div style="flex:2"><label>Bounding Box (W H D)</label>
+                            <div class="row">
+                                <input type="number" class="iW" value="30" onchange="updatePreview(0)">
+                                <input type="number" class="iH" value="30" onchange="updatePreview(0)">
+                                <input type="number" class="iD" value="30" onchange="updatePreview(0)">
+                            </div>
+                        </div>
+                        <div style="flex:1"><label>Color</label><input type="color" class="iColor" value="#3498db" onchange="updatePreview(0)"></div>
                     </div>
+                    
                     <div class="row">
                         <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="10"></div>
-                        <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="50"></div>
+                        <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="500"></div>
+                        <div style="flex:1"><label>Stop ID</label><input type="number" class="iStop" value="0"></div>
                     </div>
-                    <div class="toggle-row"><input type="checkbox" class="iMix" checked><span>Allow Mixing</span></div>
-                    <label>Quantity</label><input type="number" class="iQ" value="5">
+
+                    <div class="row">
+                        <div style="flex:1"><label>Strategy</label>
+                            <select class="iStrat">
+                                <option value="NONE">Standard</option>
+                                <option value="FIFO">FIFO (Back)</option>
+                                <option value="LIFO">LIFO (Front)</option>
+                            </select>
+                        </div>
+                        <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="5"></div>
+                    </div>
+
+                    <label>Shape Parts (Offsets & Size)</label>
+                    <div class="parts-container iParts" id="parts-0">
+                        <div class="part-row" id="p-row-0-0">
+                            <input type="number" class="pX" value="0"> <input type="number" class="pY" value="0"> <input type="number" class="pZ" value="0">
+                            <input type="number" class="pW" value="30"> <input type="number" class="pH" value="30"> <input type="number" class="pD" value="30">
+                            <span class="remove-btn" style="position:relative; margin-left:5px" onclick="removePart(0, 0)">×</span>
+                        </div>
+                    </div>
+                    <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(0)">+ Add Part</button>
+                    
                     <canvas class="preview-canvas" id="prev-0"></canvas>
                 </div>
             </div>
-            <button class="add" onclick="addItem()">+ Add Item Type</button>
+            <button class="add" onclick="addItem()">+ Add New Item Type</button>
         </div>
 
         <div class="section">
-            <label>Optimization</label>
-            <label>Iterations</label><input type="number" id="iter" value="20">
+            <label>Optimization & Filling Strategy</label>
+            <div class="row">
+                <div style="flex:1"><label>Iterations</label><input type="number" id="iter" value="20"></div>
+                <div style="flex:1"><label>Engine</label>
+                    <select id="mode">
+                        <option value="level2">Accelerated</option>
+                        <option value="mcts">MCTS Logic</option>
+                        <option value="genetic">Evolutionary</option>
+                        <option value="level1">Standard Legacy</option>
+                    </select>
+                </div>
+            </div>
+            
+            <label>Filling Bias (Versus)</label>
+            <select id="versus">
+                <option value="LONGITUDINAL">Longitudinal (Back to Front)</option>
+                <option value="LATERAL">Lateral (Side to Side)</option>
+                <option value="FLOOR_FIRST">Floor First (Surface Saturation)</option>
+            </select>
+
             <label>Priority: <span id="p-val">Stability</span></label>
             <input type="range" id="priority" min="0" max="1" step="0.1" value="1" oninput="updatePriorityLabel(this.value)">
-            <div class="row" style="font-size: 0.7em; color: #888; justify-content: space-between; margin-top: -10px; margin-bottom: 10px;">
-                <span>Density</span>
-                <span>Stability</span>
-            </div>
-            <label>Engine</label>
-            <select id="mode">
-                <option value="level2">Accelerated Multi-Core</option>
-                <option value="mcts">Intelligent (MCTS)</option>
-                <option value="genetic">Evolutionary (Genetic)</option>
-                <option value="level1">Standard Legacy</option>
-            </select>
-            <button onclick="runPacking()">FIND BEST MINIMA</button>
+            
+            <button onclick="runPacking()">CALCULATE PACKING</button>
         </div>
         
         <div id="scenario-selector">
-            <label>Top Solutions:</label>
+            <label>Results:</label>
             <div id="scenarios-list"></div>
         </div>
-        <div id="stats">Status: Ready</div>
+        <div id="stats">Ready.</div>
     </div>
 
     <div id="container-switcher">
@@ -123,37 +175,101 @@
         let activeContainerIdx = 0;
         const previews = {};
 
-        function getRandomColor() {
-            const colors = ['#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'];
-            return colors[Math.floor(Math.random() * colors.length)];
+        function addContPart() {
+            const container = document.getElementById("cont-parts");
+            const id = Date.now();
+            const div = document.createElement("div");
+            div.className = "part-row";
+            div.id = `cp-row-${id}`;
+            div.innerHTML = `
+                <select class="cpST" style="width:60px; font-size:0.7em">
+                    <option value="BOX">BOX</option>
+                    <option value="SPHERE">SPHERE</option>
+                    <option value="CYLINDER">CYLINDER</option>
+                    <option value="CONE">CONE</option>
+                    <option value="TETRAHEDRON">TETRA</option>
+                </select>
+                <input type="number" step="0.1" class="cpX" placeholder="X" value="0">
+                <input type="number" step="0.1" class="cpY" placeholder="Y" value="0">
+                <input type="number" step="0.1" class="cpZ" placeholder="Z" value="0">
+                <input type="number" step="0.1" class="cpW" placeholder="W" value="50">
+                <input type="number" step="0.1" class="cpH" placeholder="H" value="50">
+                <input type="number" step="0.1" class="cpD" placeholder="D" value="50">
+                <span class="remove-btn" style="position:relative; margin-left:5px" onclick="removeContPart('${id}')">×</span>`;
+            container.appendChild(div);
+        }
+
+        function removeContPart(id) {
+            const el = document.getElementById(`cp-row-${id}`);
+            if (el) el.remove();
+        }
+
+        function addPart(itemId) {
+            const container = document.getElementById(`parts-${itemId}`);
+            const pId = Date.now();
+            const div = document.createElement("div");
+            div.className = "part-row";
+            div.id = `p-row-${itemId}-${pId}`;
+            div.innerHTML = `
+                <select class="pST" style="width:60px; font-size:0.7em">
+                    <option value="BOX">BOX</option>
+                    <option value="SPHERE">SPHERE</option>
+                    <option value="CYLINDER">CYLINDER</option>
+                    <option value="CONE">CONE</option>
+                    <option value="TETRAHEDRON">TETRA</option>
+                </select>
+                <input type="number" class="pX" value="0"> <input type="number" class="pY" value="0"> <input type="number" class="pZ" value="0">
+                <input type="number" class="pW" value="10"> <input type="number" class="pH" value="10"> <input type="number" class="pD" value="10">
+                <span class="remove-btn" style="position:relative; margin-left:5px" onclick="removePart('${itemId}', '${pId}')">×</span>`;
+            container.appendChild(div);
+        }
+
+        function removePart(itemId, partId) {
+            const el = document.getElementById(`p-row-${itemId}-${partId}`);
+            if (el) el.remove();
         }
 
         function addItem() {
             const list = document.getElementById("items-list");
-            const id = itemCounter;
+            const id = itemCounter++;
             const div = document.createElement("div");
             div.className = "item-row";
             div.id = `item-${id}`;
             div.innerHTML = `
                 <span class="remove-btn" onclick="removeItem(${id})">×</span>
-                <label>Dimensions & Color</label>
                 <div class="row" style="align-items: center;">
-                    <input type="number" class="iW" value="20" onchange="updatePreview(${id})">
-                    <input type="number" class="iH" value="20" onchange="updatePreview(${id})">
-                    <input type="number" class="iD" value="20" onchange="updatePreview(${id})">
-                    <input type="color" class="iColor" value="${getRandomColor()}" onchange="updatePreview(${id})">
+                    <div style="flex:2"><label>Bounding Box</label>
+                        <div class="row">
+                            <input type="number" class="iW" value="20" onchange="updatePreview(${id})">
+                            <input type="number" class="iH" value="20" onchange="updatePreview(${id})">
+                            <input type="number" class="iD" value="20" onchange="updatePreview(${id})">
+                        </div>
+                    </div>
+                    <div style="flex:1"><label>Color</label><input type="color" class="iColor" value="#e74c3c" onchange="updatePreview(${id})"></div>
                 </div>
                 <div class="row">
                     <div style="flex:1"><label>Weight</label><input type="number" class="iWeight" value="5"></div>
-                    <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="50"></div>
+                    <div style="flex:1"><label>Max Top</label><input type="number" class="iMax" value="100"></div>
+                    <div style="flex:1"><label>Stop ID</label><input type="number" class="iStop" value="0"></div>
                 </div>
-                <div class="toggle-row"><input type="checkbox" class="iMix" checked><span>Allow Mixing</span></div>
-                <label>Quantity</label><input type="number" class="iQ" value="1">
+                <div class="row">
+                    <div style="flex:1"><label>Strategy</label>
+                        <select class="iStrat"><option value="NONE">Standard</option><option value="FIFO">FIFO</option><option value="LIFO">LIFO</option></select>
+                    </div>
+                    <div style="flex:1"><label>Quantity</label><input type="number" class="iQ" value="1"></div>
+                </div>
+                <label>Shape Parts</label>
+                <div class="parts-container iParts" id="parts-${id}">
+                    <div class="part-row">
+                        <input type="number" class="pX" value="0"> <input type="number" class="pY" value="0"> <input type="number" class="pZ" value="0">
+                        <input type="number" class="pW" value="20"> <input type="number" class="pH" value="20"> <input type="number" class="pD" value="20">
+                    </div>
+                </div>
+                <button class="add" style="width:auto; padding: 2px 10px;" onclick="addPart(${id})">+ Add Part</button>
                 <canvas class="preview-canvas" id="prev-${id}"></canvas>
             `;
             list.appendChild(div);
             setTimeout(() => initItemPreview(id), 50);
-            itemCounter++;
         }
 
         function removeItem(id) { 
@@ -168,19 +284,12 @@
             const pEngine = new BABYLON.Engine(canv, true);
             const scene = new BABYLON.Scene(pEngine);
             scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.1, 1);
-            
-            // Camera with controls enabled
             const cam = new BABYLON.ArcRotateCamera("pcam", -Math.PI/4, Math.PI/3, 4, BABYLON.Vector3.Zero(), scene);
-            cam.attachControl(canv, true, false); // true to attach, false to prevent default scroll behavior
-            cam.wheelPrecision = 50;
-            cam.lowerRadiusLimit = 2;
-            cam.upperRadiusLimit = 10;
-            
+            cam.attachControl(canv, true, false);
             new BABYLON.HemisphericLight("plight", new BABYLON.Vector3(1, 1, 0), scene);
             const box = BABYLON.MeshBuilder.CreateBox("pbox", { size: 1 }, scene);
             box.enableEdgesRendering();
             box.edgesWidth = 10.0;
-            box.edgesColor = new BABYLON.Color4(1, 1, 1, 1);
             const mat = new BABYLON.StandardMaterial("pmat", scene);
             box.material = mat;
             previews[id] = { engine: pEngine, scene: scene, box: box, mat: mat };
@@ -193,12 +302,8 @@
             if (!p) return;
             const row = document.getElementById(`item-${id}`);
             if (!row) return;
-            const w = parseFloat(row.querySelector(".iW").value);
-            const h = parseFloat(row.querySelector(".iH").value);
-            const d = parseFloat(row.querySelector(".iD").value);
+            const w = parseFloat(row.querySelector(".iW").value), h = parseFloat(row.querySelector(".iH").value), d = parseFloat(row.querySelector(".iD").value);
             const color = row.querySelector(".iColor").value;
-            
-            // Normalize scaling so it fits the preview perfectly
             const maxDim = Math.max(w, h, d) || 1;
             p.box.scaling = new BABYLON.Vector3(w/maxDim * 1.5, h/maxDim * 1.5, d/maxDim * 1.5);
             p.mat.diffuseColor = BABYLON.Color3.FromHexString(color);
@@ -207,54 +312,151 @@
         const createScene = function (containerData) {
             const scene = new BABYLON.Scene(engine);
             scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.05, 1);
-            
-            // Default camera setup
             const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 200, BABYLON.Vector3.Zero(), scene);
             camera.attachControl(canvas, true);
             new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
 
             if (!containerData || !containerData.dimensions) return scene;
-            
-            // Backend Mapping (Z is Up):
-            // Backend W (X) -> Babylon X
-            // Backend D (Y) -> Babylon Z
-            // Backend H (Z) -> Babylon Y (Vertical)
-            const { dimensions, items } = containerData;
-            const bW = dimensions.w, bD = dimensions.h, bH = dimensions.d; // Backend names: w, h, d
-            
+            const { dimensions, items, parts: contParts } = containerData;
+            const bW = dimensions.w, bD = dimensions.h, bH = dimensions.d;
             camera.setTarget(new BABYLON.Vector3(bW/2, bH/2, bD/2));
             camera.radius = Math.max(bW, bH, bD) * 2.2;
 
-            const cont = BABYLON.MeshBuilder.CreateBox("cont", { width: bW, height: bH, depth: bD }, scene);
-            cont.position = new BABYLON.Vector3(bW/2, bH/2, bD/2);
-            cont.material = new BABYLON.StandardMaterial("m", scene);
-            cont.material.wireframe = true;
-            cont.material.alpha = 0.2;
-
-            const itemRows = document.querySelectorAll(".item-row");
-            const colorMap = {};
-            itemRows.forEach(row => {
-                const rowId = row.id.split('-')[1];
-                colorMap[`type_${rowId}`] = row.querySelector(".iColor").value;
-            });
+            if (contParts && contParts.length > 0) {
+                contParts.forEach((cp, cpIdx) => {
+                    let mesh;
+                    const opts = { width: cp.dimensions.w, height: cp.dimensions.d, depth: cp.dimensions.h };
+                    
+                    if (cp.shape_type === "SPHERE") {
+                        mesh = BABYLON.MeshBuilder.CreateSphere("cp"+cpIdx, { diameterX: cp.dimensions.w, diameterY: cp.dimensions.d, diameterZ: cp.dimensions.h }, scene);
+                    } else if (cp.shape_type === "CYLINDER") {
+                        mesh = BABYLON.MeshBuilder.CreateCylinder("cp"+cpIdx, { height: cp.dimensions.d, diameterX: cp.dimensions.w, diameterZ: cp.dimensions.h }, scene);
+                    } else if (cp.shape_type === "CONE") {
+                        mesh = BABYLON.MeshBuilder.CreateCylinder("cp"+cpIdx, { height: cp.dimensions.d, diameterTop: 0, diameterBottom: cp.dimensions.w }, scene);
+                    } else if (cp.shape_type === "TETRAHEDRON") {
+                        mesh = BABYLON.MeshBuilder.CreatePolyhedron("cp"+cpIdx, { type: 0, size: cp.dimensions.w }, scene);
+                    } else {
+                        mesh = BABYLON.MeshBuilder.CreateBox("cp"+cpIdx, opts, scene);
+                    }
+                    
+                    mesh.position = new BABYLON.Vector3(cp.offset.x + cp.dimensions.w/2, cp.offset.z + cp.dimensions.d/2, cp.offset.y + cp.dimensions.h/2);
+                    mesh.material = new BABYLON.StandardMaterial("mcp"+cpIdx, scene);
+                    mesh.material.wireframe = true; mesh.material.alpha = 0.2;
+                });
+            }
 
             if (items) {
+                const itemRows = document.querySelectorAll(".item-row");
+                const colorMap = {};
+                itemRows.forEach(row => colorMap[row.id] = row.querySelector(".iColor").value);
+
                 items.forEach((item, i) => {
-                    const iW = item.dimensions.w, iD = item.dimensions.h, iH = item.dimensions.d;
-                    const iBox = BABYLON.MeshBuilder.CreateBox(item.id, { width: iW, height: iH, depth: iD }, scene);
-                    // Babylon Y is Backend Z
-                    iBox.position = new BABYLON.Vector3(item.position.x + iW/2, item.position.z + iH/2, item.position.y + iD/2);
-                    iBox.enableEdgesRendering();
-                    iBox.edgesWidth = 15.0;
-                    iBox.edgesColor = new BABYLON.Color4(1, 1, 1, 1);
-                    iBox.material = new BABYLON.StandardMaterial("im"+i, scene);
-                    
-                    const hexColor = colorMap[item.group_id] || "#3498db";
-                    iBox.material.diffuseColor = BABYLON.Color3.FromHexString(hexColor);
+                    const hexColor = colorMap[`item-${item.id.split('_')[1]}`] || "#3498db";
+                    if (item.parts && item.parts.length > 0) {
+                        item.parts.forEach((p, pi) => {
+                            let box;
+                            const bOpts = { width: p.dimensions.w, height: p.dimensions.d, depth: p.dimensions.h };
+                            
+                            if (p.shape_type === "SPHERE") {
+                                box = BABYLON.MeshBuilder.CreateSphere(item.id+"p"+pi, { diameterX: p.dimensions.w, diameterY: p.dimensions.d, diameterZ: p.dimensions.h }, scene);
+                            } else if (p.shape_type === "CYLINDER") {
+                                box = BABYLON.MeshBuilder.CreateCylinder(item.id+"p"+pi, { height: p.dimensions.d, diameterX: p.dimensions.w, diameterZ: p.dimensions.h }, scene);
+                            } else if (p.shape_type === "CONE") {
+                                box = BABYLON.MeshBuilder.CreateCylinder(item.id+"p"+pi, { height: p.dimensions.d, diameterTop: 0, diameterBottom: p.dimensions.w }, scene);
+                            } else if (p.shape_type === "TETRAHEDRON") {
+                                box = BABYLON.MeshBuilder.CreatePolyhedron(item.id+"p"+pi, { type: 0, size: p.dimensions.w }, scene);
+                            } else {
+                                box = BABYLON.MeshBuilder.CreateBox(item.id+"p"+pi, bOpts, scene);
+                            }
+
+                            box.position = new BABYLON.Vector3(item.position.x + p.offset.x + p.dimensions.w/2, item.position.z + p.offset.z + p.dimensions.d/2, item.position.y + p.offset.y + p.dimensions.h/2);
+                            box.enableEdgesRendering(); box.edgesWidth = 15.0;
+                            box.material = new BABYLON.StandardMaterial("mat"+i+pi, scene);
+                            box.material.diffuseColor = BABYLON.Color3.FromHexString(hexColor);
+                        });
+                    }
                 });
             }
             return scene;
         };
+
+        async function runPacking() {
+            const stats = document.getElementById("stats");
+            stats.innerHTML = "Status: 🔵 Optimizing...";
+            
+            const contParts = [];
+            document.querySelectorAll("#cont-parts .part-row").forEach(r => {
+                contParts.push({
+                    dx: parseFloat(r.querySelector(".cpX").value), dy: parseFloat(r.querySelector(".cpY").value), dz: parseFloat(r.querySelector(".cpZ").value),
+                    width: parseFloat(r.querySelector(".cpW").value), height: parseFloat(r.querySelector(".cpH").value), depth: parseFloat(r.querySelector(".cpD").value)
+                });
+            });
+
+            const items = [];
+            document.querySelectorAll(".item-row").forEach(row => {
+                const rowId = row.id.split('-')[1];
+                const parts = [];
+                row.querySelectorAll(".iParts .part-row").forEach(pr => {
+                    parts.push({
+                        dx: parseFloat(pr.querySelector(".pX").value), dy: parseFloat(pr.querySelector(".pY").value), dz: parseFloat(pr.querySelector(".pZ").value),
+                        width: parseFloat(pr.querySelector(".pW").value), height: parseFloat(pr.querySelector(".pH").value), depth: parseFloat(pr.querySelector(".pD").value)
+                    });
+                });
+
+                const q = parseInt(row.querySelector(".iQ").value);
+                for(let i=0; i<q; i++) {
+                    items.push({
+                        id: `it_${rowId}_${i}`,
+                        width: parseFloat(row.querySelector(".iW").value),
+                        height: parseFloat(row.querySelector(".iD").value), // Vertical is D in my mapping fix
+                        depth: parseFloat(row.querySelector(".iH").value),
+                        weight: parseFloat(row.querySelector(".iWeight").value),
+                        max_stack_weight: parseFloat(row.querySelector(".iMax").value),
+                        stop_id: parseInt(row.querySelector(".iStop").value),
+                        strategy: row.querySelector(".iStrat").value,
+                        parts: parts
+                    });
+                }
+            });
+
+            const payload = {
+                container: {
+                    id: "CustomCont",
+                    width: parseFloat(document.getElementById("cW").value),
+                    height: parseFloat(document.getElementById("cD").value),
+                    depth: parseFloat(document.getElementById("cH").value),
+                    parts: contParts
+                },
+                items: items,
+                mode: document.getElementById("mode").value,
+                packing_versus: document.getElementById("versus").value,
+                iterations: parseInt(document.getElementById("iter").value),
+                stability_factor: parseFloat(document.getElementById("priority").value)
+            };
+
+            try {
+                const response = await fetch(`http://127.0.0.1:8000/pack`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                allSuggestions = result.suggestions;
+                const list = document.getElementById("scenarios-list");
+                list.innerHTML = "";
+                if (allSuggestions.length > 0) {
+                    allSuggestions.forEach((s, i) => {
+                        const card = document.createElement("div");
+                        card.className = "scenario-card";
+                        card.onclick = () => selectScenario(i);
+                        card.innerHTML = `<b>Option ${i+1}: ${s.global_utilization.toFixed(2)}% Space</b>`;
+                        list.appendChild(card);
+                    });
+                    document.getElementById("scenario-selector").style.display = "block";
+                    selectScenario(0);
+                    stats.innerHTML = `<span style='color:#28a745'><b>Optimization Complete</b></span>`;
+                }
+            } catch (err) { stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>"; }
+        }
 
         function selectScenario(idx) {
             activeScenarioIdx = idx; activeContainerIdx = 0;
@@ -264,7 +466,7 @@
         }
 
         function updateView() {
-            if (!allSuggestions || !allSuggestions[activeScenarioIdx]) return;
+            if (!allSuggestions[activeScenarioIdx]) return;
             const scenario = allSuggestions[activeScenarioIdx];
             const container = scenario.containers[activeContainerIdx];
             if (currentScene) currentScene.dispose();
@@ -276,83 +478,12 @@
 
         function nextContainer() { if(!allSuggestions[activeScenarioIdx]) return; const s = allSuggestions[activeScenarioIdx]; activeContainerIdx = (activeContainerIdx + 1) % s.containers.length; updateView(); }
         function prevContainer() { if(!allSuggestions[activeScenarioIdx]) return; const s = allSuggestions[activeScenarioIdx]; activeContainerIdx = (activeContainerIdx - 1 + s.containers.length) % s.containers.length; updateView(); }
-
         function updatePriorityLabel(val) {
             const label = document.getElementById("p-val");
             const f = parseFloat(val);
             if (f > 0.8) label.innerText = "Stability (Strict Floor)";
             else if (f > 0.4) label.innerText = "Balanced";
             else label.innerText = "Density (Maximum Fill)";
-        }
-
-        async function runPacking() {
-            const stats = document.getElementById("stats");
-            stats.innerHTML = "Status: 🔵 Searching for multiple minima...";
-            const itemInputs = document.querySelectorAll(".item-row");
-            const items = [];
-            itemInputs.forEach(row => {
-                const rowId = row.id.split('-')[1];
-                const w = parseFloat(row.querySelector(".iW").value), h = parseFloat(row.querySelector(".iH").value), d = parseFloat(row.querySelector(".iD").value);
-                const weight = parseFloat(row.querySelector(".iWeight").value), maxStack = parseFloat(row.querySelector(".iMax").value);
-                const mix = row.querySelector(".iMix").checked, q = parseInt(row.querySelector(".iQ").value);
-                
-                // MAPPING FIX: We send H as 'depth' (vertical) to the backend
-                for(let i=0; i<q; i++) items.push({ 
-                    id: `it_${rowId}_${i}`, group_id: `type_${rowId}`, 
-                    width: w, height: d, depth: h, 
-                    weight: weight, max_stack_weight: maxStack, allow_mixing: mix 
-                });
-            });
-
-            try {
-                const cW = parseFloat(document.getElementById("cW").value);
-                const cH = parseFloat(document.getElementById("cH").value);
-                const cD = parseFloat(document.getElementById("cD").value);
-                
-                // MAPPING FIX: We send cH as 'depth' (vertical) to the backend
-                const payload = {
-                    container: { id: "Base", width: cW, height: cD, depth: cH },
-                    items: items, mode: document.getElementById("mode").value,
-                    strategy: "minimize_out", iterations: parseInt(document.getElementById("iter").value),
-                    stability_factor: parseFloat(document.getElementById("priority").value)
-                };
-
-                const isLocal = ["localhost", "127.0.0.1", "::1", ""].includes(window.location.hostname);
-                const host = isLocal ? "127.0.0.1" : window.location.hostname;
-                const apiUrl = `http://${host}:8000/pack`;
-                
-                console.log(`Attempting to connect to API at: ${apiUrl}`);
-
-                const response = await fetch(apiUrl, {
-                    method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                
-                if (!response.ok) {
-                    const errData = await response.json();
-                    console.error("API Error Details:", errData);
-                    throw new Error(errData.detail || "API Server Error");
-                }
-                
-                const result = await response.json();
-                allSuggestions = result.suggestions;
-                const list = document.getElementById("scenarios-list");
-                list.innerHTML = "";
-                if (allSuggestions && allSuggestions.length > 0) {
-                    allSuggestions.forEach((s, i) => {
-                        const card = document.createElement("div");
-                        card.className = "scenario-card";
-                        card.onclick = () => selectScenario(i);
-                        card.innerHTML = `<b>Option ${i+1}: ${s.global_utilization.toFixed(2)}% Space</b>`;
-                        list.appendChild(card);
-                    });
-                    document.getElementById("scenario-selector").style.display = "block";
-                    selectScenario(0);
-                    stats.innerHTML = `<span style='color:#28a745'><b>Optimization Complete</b></span>`;
-                } else {
-                    stats.innerHTML = "<span style='color:orange'>No suggestions found. Check dimensions.</span>";
-                }
-            } catch (err) { stats.innerHTML = "<span style='color:red'>Error: API unreachable</span>"; }
         }
 
         setTimeout(() => initItemPreview(0), 100);

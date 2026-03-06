@@ -90,6 +90,146 @@
       "status": "done",
       "verification_method": "Visual check of WxHxD alignment and API connectivity",
       "description": "Fix 'API unreachable' error, restore engine visibility, and align 3D coordinate system (Y-up)."
+    },
+    {
+      "id": "014",
+      "title": "PRD Update - Hybrid Ultra-Performance Vision",
+      "status": "done",
+      "verification_method": "Manual verification of conductor/product.md",
+      "description": "Updated vision to include Rust acceleration, R-Trees, FIFO/LIFO constraints, and cross-platform goals."
+    },
+    {
+      "id": "015",
+      "title": "Rust Core Initialization (PyO3)",
+      "status": "done",
+      "verification_method": "Successful 'maturin build' and python import",
+      "description": "Initialize a Rust library to bridge high-performance loops with Python via PyO3."
+    },
+    {
+      "id": "016",
+      "title": "3D R-Tree Implementation (Rust/rstar)",
+      "status": "done",
+      "verification_method": "Benchmark O(log N) vs O(N) collision detection",
+      "description": "Implement R-Tree spatial indexing in Rust for ultra-fast collision queries."
+    },
+    {
+      "id": "017",
+      "title": "FIFO/LIFO Packing Logic",
+      "status": "done",
+      "verification_method": "Visual check of packing order relative to door",
+      "description": "Implement directional Z-packing constraints for FIFO (back-to-front) and LIFO (front-to-back)."
+    },
+    {
+      "id": "018",
+      "title": "Accessibility Scoring & Stop ID Grouping",
+      "status": "done",
+      "verification_method": "Tests with priority/stop groupings",
+      "description": "Modify engine to respect item groupings and accessibility scores based on discharge sequence."
+    },
+    {
+      "id": "019",
+      "title": "Enhanced Item Mixing (GRASP Heuristic)",
+      "status": "done",
+      "verification_method": "Benchmark diversity vs optimality",
+      "description": "Implement Greedy Randomized Adaptive Search Procedure for smarter item mixing beyond basic shuffling."
+    },
+    {
+      "id": "020",
+      "title": "Portability Setup (BeeWare/Capacitor Config)",
+      "status": "done",
+      "verification_method": "Successful test build of APK/EXE wrapper",
+      "description": "Configure the project for cross-platform deployment on Android and Desktop."
+    },
+    {
+      "id": "021",
+      "title": "PDF/CAD Report Generation",
+      "status": "todo",
+      "verification_method": "Generate a test PDF with layout overview",
+      "description": "Implement automated report generation for packing results, including top-down and 3D views."
+    },
+    {
+      "id": "022",
+      "title": "Visual 'Thinking' Progress Bar",
+      "status": "todo",
+      "verification_method": "Visual check of progress bar during MCTS/Genetic runs",
+      "description": "Add a real-time progress indicator in the UI for long-running optimization tasks."
+    },
+    {
+      "id": "023",
+      "title": "Cloud Sync & User Profiles",
+      "status": "todo",
+      "verification_method": "Save and load a packing scenario from a mock/real cloud DB",
+      "description": "Enable users to save their layouts and configurations across devices."
+    },
+    {
+      "id": "024",
+      "title": "Multi-Language Support (Localization)",
+      "status": "todo",
+      "verification_method": "Toggle UI language between IT/EN",
+      "description": "Implement i18n for the visualizer and native application."
+    },
+    {
+      "id": "025",
+      "title": "Granular Rotation Constraints",
+      "status": "done",
+      "verification_method": "Test item packing with restricted axes (e.g. only Y-axis rotation)",
+      "description": "Update Item model and Engine to support per-item allowed rotation axes and global rotation toggle."
+    },
+    {
+      "id": "029",
+      "title": "Non-Parallelepiped Shapes (Items & Containers)",
+      "status": "done",
+      "verification_method": "Tests with L-shaped items and containers (test_compound_shapes.py, test_complex_container.py)",
+      "description": "Implement compound shape support via 'parts' for both items and containers, enabling irregular geometries while maintaining physics and logic constraints."
+    },
+    {
+      "id": "026",
+      "title": "Configurable Side-Filling Bias (The 'Versus')",
+      "status": "in_progress",
+      "verification_method": "Visual check of 'streak' vs 'side-fill' packing patterns",
+      "description": "Implement configurable scoring priority (e.g., fill width before depth) to prevent 'streak' packing and ensure side-to-side saturation."
+    },
+    {
+      "id": "027",
+      "title": "Optional Feature Toggles (API & Logic)",
+      "status": "todo",
+      "verification_method": "Verify API ignores mixing/FIFO if toggled off",
+      "description": "Make Mixing, FIFO/LIFO, and Rotation fully optional toggles in both global request and per-item config."
+    },
+    {
+      "id": "028",
+      "title": "UI Integration for Advanced Constraints",
+      "status": "todo",
+      "verification_method": "Manual verification of new UI controls in viewer.html",
+      "description": "Add UI elements to viewer.html for rotation constraints, versus selection, and feature toggles."
+    },
+    {
+      "id": "030",
+      "title": "Model Update - Top-level ShapeType",
+      "status": "done",
+      "verification_method": "pytest tests/test_models.py",
+      "description": "Move ShapeType to top-level of Item and Container models for direct geometric primitive definition."
+    },
+    {
+      "id": "031",
+      "title": "Engine Update - Shape-aware Collision",
+      "status": "todo",
+      "verification_method": "Packing test with spheres",
+      "description": "Propagate ShapeType to Numba/Rust and implement basic non-box collision detection."
+    },
+    {
+      "id": "032",
+      "title": "API Update - Shape-aware Endpoints",
+      "status": "todo",
+      "verification_method": "API test with shape_type input",
+      "description": "Expose shape_type in PackingRequest, ItemInput, and ContainerInput."
+    },
+    {
+      "id": "033",
+      "title": "Visualizer Update - Direct Shape UI",
+      "status": "todo",
+      "verification_method": "Visual check of shape selection in viewer.html",
+      "description": "Simplify UI to allow direct shape selection at item/container level."
     }
   ]
 }

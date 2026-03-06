@@ -2,6 +2,14 @@
 
 All notable changes to the OmniPack-Hybrid project will be documented in this file.
 
+## [1.1.0] - 2026-03-04
+
+### Added
+- **Vision Update**: Redefined the product strategy to include Rust-accelerated core, 3D R-Tree spatial indexing, and advanced logistics constraints (FIFO/LIFO).
+- **Logistics Constraints**: Added theoretical support for directional Z-packing (back-to-front/front-to-back) and accessibility scoring.
+- **Portability Roadmap**: Identified Capacitor and BeeWare as primary targets for Mobile/Desktop packaging.
+- **Task Roadmap**: Updated `tasks.json` with the new Ultra-Performance development sequence (Tasks 015-020).
+
 ## [1.0.0] - 2026-03-01
 
 ### Added

@@ -1,24 +1,20 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Wait** - Intelligent MCTS Search Implemented (Verified)
+**Direct 3D Shape Support** - Transitioning to explicit geometric primitives for items and containers.
 
 ## 📋 Backlog
-- [ ] 013: PDF/CAD Report Generation
-- [ ] 014: Visual "Thinking" Progress Bar in UI
+- [ ] 031: Engine Update - Shape-aware Collision
+- [ ] 032: API Update - Shape-aware Endpoints
+- [ ] 033: Visualizer Update - Direct Shape UI
+- [ ] 026: Configurable Side-Filling Bias (The 'Versus')
+- [ ] 027: Optional Feature Toggles (API & Logic)
+- [ ] 028: UI Integration for Advanced Constraints
+- [ ] 021: PDF/CAD Report Generation
+- [ ] 022: Visual 'Thinking' Progress Bar
 
 ## 🕒 Recent History
-- [x] 012: Intelligent Search - MCTS (Monte Carlo Tree Search)
-- [x] 011c: Barycentric Logic & Advanced Physics
-- [x] 011b: Real Physics - Stability & Force Transfer
-- [x] 011a: Weight & Stacking Constraints
-- [x] 010: Multi-Container & Strategy Logic
-- [x] 009: API Layer - FastAPI
-- [x] 008: Visualization - JSON Export & HTML Prototype
-- [x] 007: Level 2 Engine - Genetic Algorithm
-- [x] 006: Level 2 Engine - Numba Acceleration
-- [x] 005: Level 1 Engine - Best-Fit Decreasing
-- [x] 004: Level 1 Engine - EP Algorithm
-- [x] 003: Level 1 Engine - Core Models
-- [x] 002: Core Engine - Workspace Setup
-- [x] 001: Project Initialization
+- [x] 030: Model Update - Top-level ShapeType (Verified)
+- [x] 029: Non-Parallelepiped Shapes (Items & Containers)
+- [x] 025: Granular Rotation Constraints
+- [x] 020: Portability Setup (BeeWare/Capacitor Config)
