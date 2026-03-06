@@ -74,17 +74,19 @@ class ItemInput(BaseModel):
     max_stack_weight: float = 1000000.0
     allow_mixing: bool = True 
     group_id: Optional[str] = None
-    strategy: str = "NONE" # NEW: NONE, FIFO, LIFO
-    stop_id: int = 0 # NEW: Discharge order
-    allowed_rotations: Optional[List[int]] = None # NEW: List of Rotation enum indices
-    parts: Optional[List[PartInput]] = None # NEW: Custom shapes
+    strategy: str = "NONE" 
+    stop_id: int = 0 
+    allowed_rotations: Optional[List[int]] = None 
+    shape_type: str = "BOX" # NEW: Direct shape selection
+    parts: Optional[List[PartInput]] = None 
 
 class ContainerInput(BaseModel):
     id: str
     width: float
     height: float
     depth: float
-    parts: Optional[List[PartInput]] = None # NEW: Custom container shapes
+    shape_type: str = "BOX" # NEW: Direct container shape selection
+    parts: Optional[List[PartInput]] = None 
 
 class PackingRequest(BaseModel):
     container: ContainerInput
@@ -93,12 +95,14 @@ class PackingRequest(BaseModel):
     strategy: str = "minimize_out" 
     iterations: int = 20 
     stability_factor: float = 1.0
-    grasp_k: int = 1 # NEW: Diversity factor
-    packing_versus: str = "LONGITUDINAL" # NEW: LONGITUDINAL, LATERAL, FLOOR_FIRST
+    grasp_k: int = 1 
+    packing_versus: str = "LONGITUDINAL" 
 
 @app.post("/pack")
 async def pack_items_api(request: PackingRequest):
     from core.models import LoadingStrategy, Rotation, PackingVersus, ShapePart, ShapeType
+    
+    c_st = ShapeType[request.container.shape_type.upper()] if request.container.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
     
     custom_container_parts = []
     if request.container.parts:
@@ -111,6 +115,7 @@ async def pack_items_api(request: PackingRequest):
         request.container.width, 
         request.container.height, 
         request.container.depth,
+        shape_type=c_st,
         parts=custom_container_parts
     )
     
@@ -138,6 +143,8 @@ async def pack_items_api(request: PackingRequest):
             else:
                 arots = [r for r in Rotation]
 
+            i_st = ShapeType[inp.shape_type.upper()] if inp.shape_type.upper() in ShapeType.__members__ else ShapeType.BOX
+
             custom_parts = []
             if inp.parts:
                 for p in inp.parts:
@@ -149,6 +156,7 @@ async def pack_items_api(request: PackingRequest):
                 weight=inp.weight, max_stack_weight=inp.max_stack_weight,
                 group_id=inp.group_id, strategy=strat, stop_id=inp.stop_id,
                 allowed_rotations=arots,
+                shape_type=i_st,
                 parts=custom_parts
             )
             g_id = inp.group_id if inp.group_id else inp.id.rsplit('_', 1)[0]

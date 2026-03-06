@@ -220,7 +220,7 @@
     {
       "id": "032",
       "title": "API Update - Shape-aware Endpoints",
-      "status": "todo",
+      "status": "done",
       "verification_method": "API test with shape_type input",
       "description": "Expose shape_type in PackingRequest, ItemInput, and ContainerInput."
     },
