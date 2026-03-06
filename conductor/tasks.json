@@ -230,6 +230,13 @@
       "status": "done",
       "verification_method": "Visual check of shape selection in viewer.html",
       "description": "Simplify UI to allow direct shape selection at item/container level."
+    },
+    {
+      "id": "034",
+      "title": "Cleanup - Remove Compound Parts",
+      "status": "done",
+      "verification_method": "Manual check of viewer.html, main.py, and models.py",
+      "description": "Removed Advanced Compound Parts complexity from UI, API, and core engine to focus on direct geometric primitives."
     }
   ]
 }
