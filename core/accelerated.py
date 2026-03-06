@@ -43,17 +43,67 @@ def calculate_cumulative_loads(existing_pos, existing_dim, existing_weights):
     return loads
 
 @njit(cache=True)
-def is_part_in_container(px, py, pz, pw, ph, pd, cont_parts_data):
+def check_collision(ax, ay, az, aw, ah, ad, ast, ox, oy, oz, ow, oh, od, ost):
+    """
+    Generalized collision detection for different shapes.
+    ast/ost are ShapeType values: BOX=0, SPHERE=1.
+    """
+    # 1. Bounding Box check (Early Exit / Box-Box)
+    if (ax >= ox + ow - 0.001 or ax + aw <= ox + 0.001 or
+        ay >= oy + oh - 0.001 or ay + ah <= oy + 0.001 or
+        az >= oz + od - 0.001 or az + ad <= oz + 0.001):
+        return False
+        
+    # 2. Detailed check for Spheres
+    if ast == 1.0 and ost == 1.0: # Sphere-Sphere
+        r1 = aw / 2.0
+        r2 = ow / 2.0
+        dist_sq = (ax + r1 - (ox + r2))**2 + (ay + r1 - (oy + r2))**2 + (az + r1 - (oz + r2))**2
+        return dist_sq < (r1 + r2)**2 - 0.001
+        
+    if ast == 1.0 and ost == 0.0: # Sphere-Box
+        r = aw / 2.0
+        cx, cy, cz = ax + r, ay + r, az + r
+        clx = max(ox, min(cx, ox + ow))
+        cly = max(oy, min(cy, oy + oh))
+        clz = max(oz, min(cz, oz + od))
+        dist_sq = (cx - clx)**2 + (cy - cly)**2 + (cz - clz)**2
+        return dist_sq < r**2 - 0.001
+
+    if ast == 0.0 and ost == 1.0: # Box-Sphere
+        r = ow / 2.0
+        cx, cy, cz = ox + r, oy + r, oz + r
+        clx = max(ax, min(cx, ax + aw))
+        cly = max(ay, min(cy, ay + ah))
+        clz = max(az, min(cz, az + ad))
+        dist_sq = (cx - clx)**2 + (cy - cly)**2 + (cz - clz)**2
+        return dist_sq < r**2 - 0.001
+        
+    # Default: Box-Box (collision if it passed early exit)
+    return True
+
+@njit(cache=True)
+def is_part_in_container(px, py, pz, pw, ph, pd, pst, cont_parts_data):
     """Checks if an item part is fully contained within the union of container parts."""
-    # Note: Union containment is hard. For simplicity, we check if it's within AT LEAST ONE part.
-    # More advanced: Check if the part is completely covered by the union.
-    # For now, we assume container parts are large enough.
     for i in range(len(cont_parts_data)):
-        cx, cy, cz, cw, ch, cd = cont_parts_data[i]
+        cx, cy, cz, cw, ch, cd, cst = cont_parts_data[i]
+        
+        # Simple bounding box inclusion
         if (px >= cx - 0.001 and px + pw <= cx + cw + 0.001 and
             py >= cy - 0.001 and py + ph <= cy + ch + 0.001 and
             pz >= cz - 0.001 and pz + pd <= cz + cd + 0.001):
-            return True
+            
+            # If container is sphere and item is sphere, check radius inclusion
+            if pst == 1.0 and cst == 1.0:
+                r_item = pw / 2.0
+                r_cont = cw / 2.0
+                dist = np.sqrt((px + r_item - (cx + r_cont))**2 + 
+                               (py + r_item - (cy + r_cont))**2 + 
+                               (pz + r_item - (cz + r_cont))**2)
+                if dist + r_item <= r_cont + 0.001:
+                    return True
+            else:
+                return True
     return False
 
 @njit(parallel=True, cache=True)
@@ -63,7 +113,7 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
     cw, ch, cd = container_dim
     results = np.zeros((num_eps, num_rots), dtype=np.bool_)
     n_existing = len(existing_pos)
-    current_loads = calculate_cumulative_loads(existing_pos, existing_dim, existing_weights)
+    current_loads = calculate_cumulative_loads(existing_pos, existing_dim[:, :3], existing_weights)
 
     # Pre-check: exists any floor position?
     any_floor_valid = False
@@ -73,12 +123,12 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
                 for j in range(num_rots):
                     all_parts_valid = True
                     for p_idx in range(item_parts_counts[j]):
-                        px, py, pz, pw, ph, pd = item_parts_data[j, p_idx]
+                        px, py, pz, pw, ph, pd, pst = item_parts_data[j, p_idx]
                         ax, ay, az = eps[i, 0] + px, eps[i, 1] + py, eps[i, 2] + pz
                         
                         # Boundary check (Container Parts)
                         if cont_parts_data is not None:
-                            if not is_part_in_container(ax, ay, az, pw, ph, pd, cont_parts_data):
+                            if not is_part_in_container(ax, ay, az, pw, ph, pd, pst, cont_parts_data):
                                 all_parts_valid = False; break
                         else:
                             if not (ax + pw <= cw + 0.001 and ay + ph <= ch + 0.001 and az + pd <= cd + 0.001):
@@ -86,9 +136,9 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
                         
                         collision = False
                         for k in range(n_existing):
-                            if (ax < existing_pos[k, 0] + existing_dim[k, 0] - 0.001 and ax + pw > existing_pos[k, 0] + 0.001 and
-                                ay < existing_pos[k, 1] + existing_dim[k, 1] - 0.001 and ay + ph > existing_pos[k, 1] + 0.001 and
-                                az < existing_pos[k, 2] + existing_dim[k, 2] - 0.001 and az + pd > existing_pos[k, 2] + 0.001):
+                            ox, oy, oz = existing_pos[k]
+                            ow, oh, od, ost = existing_dim[k]
+                            if check_collision(ax, ay, az, pw, ph, pd, pst, ox, oy, oz, ow, oh, od, ost):
                                 collision = True; break
                         if collision:
                             all_parts_valid = False; break
@@ -107,12 +157,12 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
             n_parts = item_parts_counts[j]
             item_valid = True
             for p_idx in range(n_parts):
-                px, py, pz, pw, ph, pd = item_parts_data[j, p_idx]
+                px, py, pz, pw, ph, pd, pst = item_parts_data[j, p_idx]
                 ax, ay, az = ex + px, ey + py, ez + pz
                 
                 # Boundary check (Container Parts)
                 if cont_parts_data is not None:
-                    if not is_part_in_container(ax, ay, az, pw, ph, pd, cont_parts_data):
+                    if not is_part_in_container(ax, ay, az, pw, ph, pd, pst, cont_parts_data):
                         item_valid = False; break
                 else:
                     if not (ax + pw <= cw + 0.001 and ay + ph <= ch + 0.001 and az + pd <= cd + 0.001):
@@ -121,10 +171,8 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
                 collision = False
                 for k in range(n_existing):
                     ox, oy, oz = existing_pos[k]
-                    ow, oh, od = existing_dim[k]
-                    if (ax < ox + ow - 0.001 and ax + pw > ox + 0.001 and
-                        ay < oy + oh - 0.001 and ay + ph > oy + 0.001 and
-                        az < oz + od - 0.001 and az + pd > oz + 0.001):
+                    ow, oh, od, ost = existing_dim[k]
+                    if check_collision(ax, ay, az, pw, ph, pd, pst, ox, oy, oz, ow, oh, od, ost):
                         collision = True; break
                 if collision:
                     item_valid = False; break
@@ -136,7 +184,7 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
             elif strategy == 2 and (ez > 0):
                 is_at_front = False
                 for p_idx in range(n_parts):
-                    px, py, pz, pw, ph, pd = item_parts_data[j, p_idx]
+                    px, py, pz, pw, ph, pd, pst = item_parts_data[j, p_idx]
                     if abs((ez + pz + pd) - cd) < 0.001:
                         is_at_front = True; break
                 if is_at_front:
@@ -150,14 +198,15 @@ def evaluate_positions_parallel(eps, item_parts_data, item_parts_counts, existin
                 support_areas = []
                 
                 for p_idx in range(n_parts):
-                    px, py, pz, pw, ph, pd = item_parts_data[j, p_idx]
+                    px, py, pz, pw, ph, pd, pst = item_parts_data[j, p_idx]
                     ax, ay, az = ex + px, ey + py, ez + pz
                     total_item_footprint += pw * ph
                     
                     for k in range(n_existing):
                         ox, oy, oz = existing_pos[k]
-                        ow, oh, od = existing_dim[k]
+                        ow, oh, od, ost = existing_dim[k]
                         if abs(az - (oz + od)) < 0.001:
+                            # Use bounding box for footprint area overlap
                             area = get_overlap_area(ax, ay, ax + pw, ay + ph, ox, oy, ox + ow, oy + oh)
                             if area > 0:
                                 total_contact_area += area

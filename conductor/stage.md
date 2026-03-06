@@ -1,10 +1,9 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Direct 3D Shape Support** - Transitioning to explicit geometric primitives for items and containers.
+**Direct 3D Shape Support** - Implementation of geometric primitives collision.
 
 ## 📋 Backlog
-- [ ] 031: Engine Update - Shape-aware Collision
 - [ ] 032: API Update - Shape-aware Endpoints
 - [ ] 033: Visualizer Update - Direct Shape UI
 - [ ] 026: Configurable Side-Filling Bias (The 'Versus')
@@ -14,7 +13,7 @@
 - [ ] 022: Visual 'Thinking' Progress Bar
 
 ## 🕒 Recent History
+- [x] 031: Engine Update - Shape-aware Collision (Verified)
 - [x] 030: Model Update - Top-level ShapeType (Verified)
 - [x] 029: Non-Parallelepiped Shapes (Items & Containers)
 - [x] 025: Granular Rotation Constraints
-- [x] 020: Portability Setup (BeeWare/Capacitor Config)

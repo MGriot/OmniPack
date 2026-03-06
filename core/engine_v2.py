@@ -38,9 +38,9 @@ class Level2Engine:
 
         # Prepare container parts data
         cont_parts_list = self.container.parts
-        cont_parts_data = np.zeros((len(cont_parts_list), 6), dtype=np.float64)
+        cont_parts_data = np.zeros((len(cont_parts_list), 7), dtype=np.float64)
         for i, cp in enumerate(cont_parts_list):
-            cont_parts_data[i] = [cp.dx, cp.dy, cp.dz, cp.width, cp.height, cp.depth]
+            cont_parts_data[i] = [cp.dx, cp.dy, cp.dz, cp.width, cp.height, cp.depth, float(cp.shape_type)]
 
         for item in sorted_items:
             eps_list = list(self.extreme_points)
@@ -48,7 +48,7 @@ class Level2Engine:
             
             # Prepare parts for all 6 rotations
             max_parts = max(len(it.parts) for it in sorted_items)
-            rots_parts_data = np.zeros((6, max_parts, 6), dtype=np.float64)
+            rots_parts_data = np.zeros((6, max_parts, 7), dtype=np.float64) # Added 7th col for shape_type
             rots_parts_counts = np.zeros(6, dtype=np.int32)
             
             orig_rot = item.rotation
@@ -56,28 +56,28 @@ class Level2Engine:
                 item.rotation = Rotation(r_idx)
                 p_list = item.get_rotated_parts()
                 rots_parts_counts[r_idx] = len(p_list)
-                for p_idx, ((px, py, pz), (pw, ph, pd)) in enumerate(p_list):
-                    rots_parts_data[r_idx, p_idx] = [px, py, pz, pw, ph, pd]
+                for p_idx, ((px, py, pz), (pw, ph, pd), st) in enumerate(p_list):
+                    rots_parts_data[r_idx, p_idx] = [px, py, pz, pw, ph, pd, float(st)]
             item.rotation = orig_rot
 
-            # Expand existing items into boxes
+            # Expand existing items into parts with shape_type
             expanded_pos = []
-            expanded_dim = []
+            expanded_dim = [] # Will now be (N, 4) - W, H, D, ShapeType
             expanded_weights = []
             expanded_max_support = []
             
             for ex_item in self.container.items:
                 ex_parts = ex_item.get_rotated_parts()
                 total_vol = ex_item.volume()
-                for (px, py, pz), (pw, ph, pd) in ex_parts:
+                for (px, py, pz), (pw, ph, pd), st in ex_parts:
                     expanded_pos.append([ex_item.position[0] + px, ex_item.position[1] + py, ex_item.position[2] + pz])
-                    expanded_dim.append([pw, ph, pd])
-                    part_vol = pw * ph * pd
+                    expanded_dim.append([pw, ph, pd, float(st)])
+                    part_vol = pw * ph * pd # Use bounding box volume for weight ratio
                     expanded_weights.append(ex_item.weight * (part_vol / total_vol) if total_vol > 0 else 0)
                     expanded_max_support.append(ex_item.max_stack_weight)
             
             existing_pos = np.array(expanded_pos, dtype=np.float64).reshape(-1, 3) if expanded_pos else np.zeros((0, 3))
-            existing_dim = np.array(expanded_dim, dtype=np.float64).reshape(-1, 3) if expanded_dim else np.zeros((0, 3))
+            existing_dim = np.array(expanded_dim, dtype=np.float64).reshape(-1, 4) if expanded_dim else np.zeros((0, 4))
             existing_weights = np.array(expanded_weights, dtype=np.float64)
             existing_max_support = np.array(expanded_max_support, dtype=np.float64)
             

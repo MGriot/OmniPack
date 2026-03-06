@@ -21,12 +21,12 @@ def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoi
     """
     Enhanced EP Generation from all parts of a compound item.
     """
-    parts = item.get_rotated_parts() # List of ((rx, ry, rz), (rw, rh, rd))
+    parts = item.get_rotated_parts() # List of ((rx, ry, rz), (rw, rh, rd), st)
     ix, iy, iz = item.position
     existing = container.items
     
     potential_pts = []
-    for (px, py, pz), (pw, ph, pd) in parts:
+    for (px, py, pz), (pw, ph, pd), st in parts:
         # Global coordinates of this part
         gx, gy, gz = ix + px, iy + py, iz + pz
         
@@ -42,7 +42,7 @@ def generate_extreme_points(container: Container, item: Item) -> List[ExtremePoi
     # Include existing items expanded into boxes
     expanded_existing = []
     for other in existing:
-        for (opx, opy, opz), (opw, oph, opd) in other.get_rotated_parts():
+        for (opx, opy, opz), (opw, oph, opd), ost in other.get_rotated_parts():
             expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd)))
 
     for p in potential_pts:
@@ -95,15 +95,15 @@ def get_valid_ep(container: Container, item: Item, eps: Set[ExtremePoint]) -> Li
     valid_eps = []
     expanded_existing = []
     for other in container.items:
-        for (opx, opy, opz), (opw, oph, opd) in other.get_rotated_parts():
-            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd)))
+        for (opx, opy, opz), (opw, oph, opd), ost in other.get_rotated_parts():
+            expanded_existing.append(((other.position[0] + opx, other.position[1] + opy, other.position[2] + opz), (opw, oph, opd), ost))
 
     for ep in eps:
         item.position = ep.to_tuple()
         parts = item.get_rotated_parts()
         
         item_valid = True
-        for (px, py, pz), (pw, ph, pd) in parts:
+        for (px, py, pz), (pw, ph, pd), ast in parts:
             ax, ay, az = ep.x + px, ep.y + py, ep.z + pz
             
             # Boundary check against container parts
@@ -120,11 +120,27 @@ def get_valid_ep(container: Container, item: Item, eps: Set[ExtremePoint]) -> Li
                 
             # Collision check
             collision = False
-            for (ox, oy, oz), (ow, oh, od) in expanded_existing:
+            for (ox, oy, oz), (ow, oh, od), ost in expanded_existing:
+                # Early exit / Bounding box check
                 if (ax < ox + ow - 0.001 and ax + pw > ox + 0.001 and
                     ay < oy + oh - 0.001 and ay + ph > oy + 0.001 and
                     az < oz + od - 0.001 and az + pd > oz + 0.001):
-                    collision = True; break
+                    
+                    # If both are BOX (0), it's a collision
+                    if ast == 0 and ost == 0:
+                        collision = True; break
+                    
+                    # For other shapes, use the same logic as accelerated.py (simplified here)
+                    if ast == 1 and ost == 1: # Sphere-Sphere
+                        r1, r2 = pw/2, ow/2
+                        dist_sq = (ax+r1-(ox+r2))**2 + (ay+r1-(oy+r2))**2 + (az+r1-(oz+r2))**2
+                        if dist_sq < (r1+r2)**2 - 0.001:
+                            collision = True; break
+                    elif ast == 1 or ost == 1: # Sphere-Box
+                        # Just use bounding box for now to avoid too much complexity in Python path
+                        collision = True; break 
+                    else:
+                        collision = True; break
             if collision:
                 item_valid = False; break
         

@@ -49,7 +49,7 @@ class Level1Engine:
             for ex in self.container.items:
                 ex_parts = ex.get_rotated_parts()
                 total_vol = ex.volume()
-                for (px, py, pz), (pw, ph, pd) in ex_parts:
+                for (px, py, pz), (pw, ph, pd), st in ex_parts:
                     p_pos = (ex.position[0] + px, ex.position[1] + py, ex.position[2] + pz)
                     p_weight = ex.weight * ((pw*ph*pd)/total_vol) if total_vol > 0 else 0
                     all_boxes.append((p_pos, (pw, ph, pd), p_weight, ex.max_stack_weight))
@@ -64,7 +64,7 @@ class Level1Engine:
                     item_parts = item.get_rotated_parts()
                     
                     # Simple Support & Weight Check for Level 1
-                    for (px, py, pz), (pw, ph, pd) in item_parts:
+                    for (px, py, pz), (pw, ph, pd), st in item_parts:
                         ax, ay, az = ep.x + px, ep.y + py, ep.z + pz
                         part_weight = item.weight * ((pw*ph*pd)/item.volume()) if item.volume() > 0 else 0
                         

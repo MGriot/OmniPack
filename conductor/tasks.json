@@ -213,9 +213,9 @@
     {
       "id": "031",
       "title": "Engine Update - Shape-aware Collision",
-      "status": "todo",
-      "verification_method": "Packing test with spheres",
-      "description": "Propagate ShapeType to Numba/Rust and implement basic non-box collision detection."
+      "status": "done",
+      "verification_method": "pytest tests/test_shapes_collision.py",
+      "description": "Propagate ShapeType to Numba/Rust and implement basic non-box collision detection (Sphere-Sphere, Sphere-Box)."
     },
     {
       "id": "032",
