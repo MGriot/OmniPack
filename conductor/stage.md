@@ -1,16 +1,16 @@
 # OmniPack Dashboard
 
 ## 🚀 Active Focus
-**Cleanup & Stability** - Task 027 verified.
+**Cleanup & Stability** - Task 028 verified. Advanced UI controls integrated.
 
 ## 📋 Backlog
-- [ ] 028: UI Integration for Advanced Constraints
 - [ ] 021: PDF/CAD Report Generation
 - [ ] 022: Visual 'Thinking' Progress Bar
 - [ ] 023: Cloud Sync & User Profiles
 - [ ] 024: Multi-Language Support (Localization)
 
 ## 🕒 Recent History
+- [x] 028: UI Integration for Advanced Constraints (Verified)
 - [x] 027: Optional Feature Toggles (API & Logic) (Verified)
 - [x] 026: Configurable Side-Filling Bias (The 'Versus') (Verified)
 - [x] 033: Visualizer Update - Direct Shape UI (Verified)

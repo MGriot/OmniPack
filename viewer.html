@@ -9,7 +9,7 @@
         #ui { 
             position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.9); 
             color: white; padding: 20px; font-family: 'Segoe UI', sans-serif; 
-            border-radius: 12px; width: 400px; max-height: 95vh; overflow-y: auto;
+            border-radius: 12px; width: 420px; max-height: 95vh; overflow-y: auto;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 10;
         }
         .section { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
@@ -38,6 +38,10 @@
         
         #container-switcher { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 20px; color: white; display: none; gap: 10px; align-items: center; }
         .nav-btn { background: #444; border: none; color: white; padding: 5px 15px; border-radius: 15px; cursor: pointer; }
+        
+        .check-group { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; background: #111; padding: 5px; border-radius: 4px; }
+        .check-item { display: flex; align-items: center; gap: 4px; font-size: 0.75em; }
+        .check-item input { width: auto; margin: 0; }
     </style>
 </head>
 <body>
@@ -58,6 +62,15 @@
                 <option value="CYLINDER">CYLINDER</option>
                 <option value="TETRAHEDRON">TETRAHEDRON</option>
             </select>
+        </div>
+
+        <div class="section">
+            <label>Global Feature Toggles</label>
+            <div class="check-group">
+                <div class="check-item"><input type="checkbox" id="gMixing" checked> <label style="display:inline; color:white">Mixing</label></div>
+                <div class="check-item"><input type="checkbox" id="gStrategy" checked> <label style="display:inline; color:white">FIFO/LIFO</label></div>
+                <div class="check-item"><input type="checkbox" id="gRotation" checked> <label style="display:inline; color:white">Rotation</label></div>
+            </div>
         </div>
 
         <div class="section">
@@ -102,6 +115,20 @@
                                 <option value="LIFO">LIFO (Front)</option>
                             </select>
                         </div>
+                        <div style="flex:1; display:flex; align-items:center; gap:5px; margin-top:10px">
+                            <input type="checkbox" class="iMix" checked style="width:auto; margin:0">
+                            <label style="display:inline; margin:0">Allow Mixing</label>
+                        </div>
+                    </div>
+
+                    <label style="margin-top:5px">Allowed Rotations</label>
+                    <div class="check-group iRots">
+                        <div class="check-item"><input type="checkbox" value="0" checked> <span style="font-size:0.8em">WHD</span></div>
+                        <div class="check-item"><input type="checkbox" value="1" checked> <span style="font-size:0.8em">HWD</span></div>
+                        <div class="check-item"><input type="checkbox" value="2" checked> <span style="font-size:0.8em">HDW</span></div>
+                        <div class="check-item"><input type="checkbox" value="3" checked> <span style="font-size:0.8em">DHW</span></div>
+                        <div class="check-item"><input type="checkbox" value="4" checked> <span style="font-size:0.8em">DWH</span></div>
+                        <div class="check-item"><input type="checkbox" value="5" checked> <span style="font-size:0.8em">WDH</span></div>
                     </div>
                     
                     <canvas class="preview-canvas" id="prev-0"></canvas>
@@ -200,6 +227,19 @@
                     <div style="flex:1"><label>Strategy</label>
                         <select class="iStrat"><option value="NONE">Standard</option><option value="FIFO">FIFO</option><option value="LIFO">LIFO</option></select>
                     </div>
+                    <div style="flex:1; display:flex; align-items:center; gap:5px; margin-top:10px">
+                        <input type="checkbox" class="iMix" checked style="width:auto; margin:0">
+                        <label style="display:inline; margin:0">Allow Mixing</label>
+                    </div>
+                </div>
+                <label style="margin-top:5px">Allowed Rotations</label>
+                <div class="check-group iRots">
+                    <div class="check-item"><input type="checkbox" value="0" checked> <span style="font-size:0.8em">WHD</span></div>
+                    <div class="check-item"><input type="checkbox" value="1" checked> <span style="font-size:0.8em">HWD</span></div>
+                    <div class="check-item"><input type="checkbox" value="2" checked> <span style="font-size:0.8em">HDW</span></div>
+                    <div class="check-item"><input type="checkbox" value="3" checked> <span style="font-size:0.8em">DHW</span></div>
+                    <div class="check-item"><input type="checkbox" value="4" checked> <span style="font-size:0.8em">DWH</span></div>
+                    <div class="check-item"><input type="checkbox" value="5" checked> <span style="font-size:0.8em">WDH</span></div>
                 </div>
                 <canvas class="preview-canvas" id="prev-${id}"></canvas>
             `;
@@ -323,6 +363,10 @@
             const items = [];
             document.querySelectorAll(".item-row").forEach(row => {
                 const rowId = row.id.split('-')[1];
+                
+                const allowedRots = [];
+                row.querySelectorAll(".iRots input:checked").forEach(cb => allowedRots.push(parseInt(cb.value)));
+
                 const q = parseInt(row.querySelector(".iQ").value);
                 for(let i=0; i<q; i++) {
                     items.push({
@@ -334,7 +378,9 @@
                         max_stack_weight: parseFloat(row.querySelector(".iMax").value),
                         stop_id: parseInt(row.querySelector(".iStop").value),
                         strategy: row.querySelector(".iStrat").value,
-                        shape_type: row.querySelector(".iST").value
+                        shape_type: row.querySelector(".iST").value,
+                        allow_mixing: row.querySelector(".iMix").checked,
+                        allowed_rotations: allowedRots.length > 0 ? allowedRots : null
                     });
                 }
             });
@@ -351,7 +397,10 @@
                 mode: document.getElementById("mode").value,
                 packing_versus: document.getElementById("versus").value,
                 iterations: parseInt(document.getElementById("iter").value),
-                stability_factor: parseFloat(document.getElementById("priority").value)
+                stability_factor: parseFloat(document.getElementById("priority").value),
+                enable_mixing: document.getElementById("gMixing").checked,
+                enable_strategy: document.getElementById("gStrategy").checked,
+                enable_rotation: document.getElementById("gRotation").checked
             };
 
             try {

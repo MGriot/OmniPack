@@ -199,7 +199,7 @@
     {
       "id": "028",
       "title": "UI Integration for Advanced Constraints",
-      "status": "todo",
+      "status": "done",
       "verification_method": "Manual verification of new UI controls in viewer.html",
       "description": "Add UI elements to viewer.html for rotation constraints, versus selection, and feature toggles."
     },
