@@ -2,6 +2,26 @@
 
 All notable changes to the OmniPack-Hybrid project will be documented in this file.
 
+## [1.2.0] - 2026-03-07
+
+### Added
+- **Advanced Filling Biases**: Implemented **Wall Building** (vertical depth layers) and **Corner First** (4-corner perimeter) strategies for specialized logistics requirements.
+- **Balance-Aware Scoring**: Enhanced all calculation cores to prioritize low and centered Centers of Mass, significantly improving container stability for transport.
+- **Comprehensive Validation**: Created `comprehensive_test.py` to benchmark all engines, verify all 5 filling biases, and confirm collision-free packing.
+- **Symmetrical Shape Handling**: Added automatic dimension synchronization in the UI catalog for symmetrical shapes (Spheres and Tetrahedrons).
+- **Favicon Fix**: Added a 204 No Content response for `/favicon.ico` in `main.py` to reduce log noise.
+
+### Fixed
+- **GUI Dimension Mapping**: Fixed a critical bug in `viewer.html` where Width, Height, and Depth were incorrectly swapped during API requests.
+- **Optimizer Integration**: Fixed a critical bug in `MultiContainerEngine` where results from Genetic and MCTS optimizers were not correctly assigned to containers, leading to 0% utilization.
+- **Accessibility Metric**: Corrected the accessibility penalty multiplier in `core/models.py` to properly reflect the 0-100% scale.
+- **Refactor Stability**: Restored the entire test suite (`tests/`) to 100% pass rate following the removal of compound parts.
+- **Floor-First Bias**: Refined the scoring logic to strictly prioritize surface area saturation before stacking.
+- **UI Visibility**: Enhanced 3D container rendering in `viewer.html` by enabling edge rendering for better spatial context.
+
+### Changed
+- **Rust Hello Message**: Updated core verification to include R-Tree support status.
+
 ## [1.1.0] - 2026-03-04
 
 ### Added

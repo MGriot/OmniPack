@@ -1,5 +1,8 @@
-from core.models import Item, Container, Rotation
-from core.engine import Level1Engine
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container, Rotation
+from omnipack.core.engine import Level1Engine
 
 def test_simple_pack():
     container = Container("c1", 100, 100, 100)

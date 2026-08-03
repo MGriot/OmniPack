@@ -1,6 +1,9 @@
 import pytest
-from core.models import Item, Container, Rotation
-from core.engine_v2 import Level2Engine
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container, Rotation
+from omnipack.core.engine_v2 import Level2Engine
 
 def test_restricted_rotations():
     # Container is SHORT (height 20)

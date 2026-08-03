@@ -1,4 +1,7 @@
-from core.models import Item, Container, Rotation, ShapeType
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container, Rotation, ShapeType
 
 def test_item_volume():
     item = Item("box1", 10, 20, 30)
@@ -24,7 +27,7 @@ def test_container_remaining_volume():
 
 def test_shape_type_propagation():
     item = Item("sphere1", 10, 10, 10, shape_type=ShapeType.SPHERE)
-    assert item.parts[0].shape_type == ShapeType.SPHERE
+    assert item.shape_type == ShapeType.SPHERE
     
     container = Container("cont1", 100, 100, 100, shape_type=ShapeType.CYLINDER)
-    assert container.parts[0].shape_type == ShapeType.CYLINDER
+    assert container.shape_type == ShapeType.CYLINDER

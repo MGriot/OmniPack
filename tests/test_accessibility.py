@@ -1,6 +1,9 @@
 import pytest
-from core.models import Item, Container, LoadingStrategy
-from core.engine_v2 import Level2Engine
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container, LoadingStrategy
+from omnipack.core.engine_v2 import Level2Engine
 
 def test_stop_id_grouping():
     container = Container("TRUCK_1", 100, 100, 100)

@@ -237,6 +237,139 @@
       "status": "done",
       "verification_method": "Manual check of viewer.html, main.py, and models.py",
       "description": "Removed Advanced Compound Parts complexity from UI, API, and core engine to focus on direct geometric primitives."
+    },
+    {
+      "id": "037",
+      "title": "GUI Stats Integration (Stability, Load, Utilization)",
+      "status": "done",
+      "verification_method": "Visual check of stats panel in viewer.html",
+      "description": "Expose global stability score, center of mass, and detailed volume utilization in the GUI."
+    },
+    {
+      "id": "038",
+      "title": "Engine Best-Fit Mode (Fast Trial -> Best Selection)",
+      "status": "done",
+      "verification_method": "API test confirming engine selection based on utilization",
+      "description": "Implement a 'Best-Fit' engine mode that runs quick trials of multiple heuristics and selects the most efficient one for final calculation."
+    },
+    {
+      "id": "039",
+      "title": "Catalog API - local JSON CRUD (GET/POST /catalog)",
+      "status": "done",
+      "verification_method": "pytest tests/test_catalog_api.py",
+      "description": "Implement FastAPI endpoints to save and retrieve packing configurations from a local JSON library."
+    },
+    {
+      "id": "040",
+      "title": "Catalog UI - Save/Load library in viewer.html",
+      "status": "done",
+      "verification_method": "Visual check of catalog list and load functionality in viewer.html",
+      "description": "Add UI components to the visualizer to browse, save, and load items and containers from the catalog."
+    },
+    {
+      "id": "041",
+      "title": "Catalog Integration - Preserve calculations (save packed suggestions)",
+      "status": "done",
+      "verification_method": "API test confirming suggestions are preserved in catalog",
+      "description": "Extend the catalog to optionally save full packing results (suggestions) to skip re-calculation for known loadouts."
+    },
+    {
+      "id": "042",
+      "title": "Catalog UI - JSON Import/Export",
+      "status": "in_progress",
+      "verification_method": "Visual check of Import button and successful load of an exported JSON file",
+      "description": "Add functionality to export the entire catalog as a JSON file and import it back, enabling configuration sharing."
+    },
+    {
+      "id": "043",
+      "title": "Visualizer Fix - Scenario Switching Bug",
+      "status": "todo",
+      "verification_method": "Visual check that clicking 'Option X' updates the 3D scene correctly",
+      "description": "Fix a bug where only the first scenario is displayed regardless of the selected option in the results list."
+    },
+    {
+      "id": "044",
+      "title": "Visualizer Improvement - Modular Iterations Input",
+      "status": "todo",
+      "verification_method": "API test confirming 'iterations' from UI is respected in packing results",
+      "description": "Ensure the 'Iterations' input in the UI correctly controls the number of engine runs and generated scenarios."
+    },
+    {
+      "id": "045",
+      "title": "Python Baseline - Fix Migration Regressions",
+      "status": "done",
+      "verification_method": "'uv run pytest -q' passes with 0 collection errors and 0 failures",
+      "description": "Fixed 13 stale 'core.*' imports left over from the core/ -> src/omnipack/core/ move, deleted 2 tests/scripts tied to the retired genetic/mcts engines, fixed tests/test_catalog_api.py's CATALOG_PATH import, and restored 3 features silently dropped by the move: Container.calculate_accessibility()/remaining_volume(), ep.py's richer generate_extreme_points/get_valid_ep, and accelerated.py's LIFO door-support + sphere-box collision + correct load-bearing formula. Also corrected the accessibility scoring formula itself (didn't match its own test's documented intent even before the move) and fixed docs/ANDROID_GUIDE.md's stale 'embedded server' description."
+    },
+    {
+      "id": "046",
+      "title": "Native C++/Qt Engine - Headless Core + Tests",
+      "status": "done",
+      "verification_method": "'cmake --build native/build && ctest --test-dir native/build' passes (27 tests, 76 assertions)",
+      "description": "Started the C++/Qt rewrite (decision: ship one native codebase to Android/Windows/Linux instead of continuing the Python/BeeWare path). Ported models.py, ep.py, accelerated.py, engine.py/engine_v2.py, multi_container.py, and the catalog CRUD from logic.py into native/core/ as a header-only C++20 library, with a doctest suite covering the same scenarios as the (now-fixed) Python tests. No Qt dependency yet."
+    },
+    {
+      "id": "047",
+      "title": "Native C++/Qt Engine - Qt6 Toolchain + Smoke-Test App",
+      "status": "done",
+      "verification_method": "cmake -B native/build -DOMNIPACK_BUILD_APP=ON -DCMAKE_PREFIX_PATH=<qt>/6.8.3/mingw_64 && cmake --build native/build, run omnipack_app, click 'Pack sample', confirm it prints a packed result from the C++ engine",
+      "description": "Install Qt 6.8.3 win64_mingw (+ qtshadertools) and the matching Qt-provided MinGW 13.1 toolchain via aqtinstall into native/qt/ (gitignored). Add native/app/ - a minimal Qt Quick window (Main.qml + PackerBridge) that calls into omnipack_core to pack a hardcoded sample and displays the result, proving the desktop Qt toolchain works end to end."
+    },
+    {
+      "id": "048",
+      "title": "Native C++/Qt Engine - Qt Quick 3D Viewer",
+      "status": "todo",
+      "verification_method": "Visual check: 3D viewport renders packed boxes with correct positions/rotations, matches src/omnipack/viewer.html's Babylon.js output for the same input",
+      "description": "Replace viewer.html's Babylon.js scene with a Qt Quick 3D viewport: color pickers, item previews, scenario switching, and the stats panel (utilization/weight/accessibility/center of mass) that models.hpp's calculate_stats()/calculate_accessibility() already compute."
+    },
+    {
+      "id": "049",
+      "title": "Native C++/Qt Engine - Catalog UI",
+      "status": "todo",
+      "verification_method": "Manual check: save/load/import/export a catalog entry through the native UI, matches the Python app's task 039-042 behavior",
+      "description": "Build save/load/import/export UI on top of native/core/include/omnipack/catalog.hpp, matching the catalog feature set the Python app already has (tasks 039-042)."
+    },
+    {
+      "id": "050",
+      "title": "Native C++/Qt Engine - Android Target",
+      "status": "todo",
+      "verification_method": "APK builds via androiddeployqt and runs on an emulator/device, showing the same UI as desktop",
+      "description": "Install Qt for Android (aqt install-qt android) + NDK, configure the Android CMake toolchain, and get native/app building and running as an APK."
+    },
+    {
+      "id": "051",
+      "title": "Native C++/Qt Engine - Linux Target",
+      "status": "todo",
+      "verification_method": "cmake --build succeeds and the app runs under WSL or a Linux CI runner",
+      "description": "Build and verify the Linux target. Dev happens on Windows, so this needs WSL or a Linux CI runner rather than a local native build."
+    },
+    {
+      "id": "052",
+      "title": "Plain-C Engine - Headless Core + Tests",
+      "status": "done",
+      "verification_method": "cmake --build native_c/build && ctest --test-dir native_c/build (27 tests, 0 failed)",
+      "description": "Decision: reproduce the app in plain C instead, with raw per-platform native UI (Win32 on Windows, Android NDK+JNI+Kotlin shell on Android) and a real trained ML placement model, rather than continuing the C++/Qt path (kept as-is at native/, nothing deleted). Ported models.py/ep.py/accelerated.py/engine.py/engine_v2.py/multi_container.py/logic.py's catalog CRUD into native_c/core/ as a C11 static library: plain structs, manual growable arrays replacing std::vector/unordered_set, a hand-written xorshift32 PRNG per engine instance, qsort-based sorting via precomputed keys (C comparators can't capture context), and a hand-rolled JsonValue for catalog persistence. Tests use a small self-written header-only harness (no external dependency, to avoid the doctest/MinGW-toolchain-path friction hit in the C++ build)."
+    },
+    {
+      "id": "053",
+      "title": "Plain-C Engine - Win32 Smoke-Test App",
+      "status": "done",
+      "verification_method": "cmake --build native_c/build -DOMNIPACK_C_BUILD_WIN32_APP=ON, run omnipack_win32_app.exe, click 'Pack Sample', confirm the packed result appears as text",
+      "description": "Raw Win32 app (native_c/win32_app/main.c): WinMain/RegisterClassEx/CreateWindowEx/WndProc, a BUTTON + read-only multiline EDIT control. Clicking the button calls omnipack_core_c with the same hardcoded sample used in the Qt smoke test. No 3D rendering yet - text summary only, matching the Qt smoke test's scope."
+    },
+    {
+      "id": "054",
+      "title": "Plain-C Engine - Android NDK + JNI + Kotlin Shell",
+      "status": "done",
+      "verification_method": "cd android_app && ./gradlew assembleDebug (BUILD SUCCESSFUL, both ABIs); installed app-debug.apk on AVD omnipack_test (android-34 google_apis x86_64), launched MainActivity, tapped Pack Sample, screenshots confirm correct packed output rendered via JNI; logcat clean of AndroidRuntime errors/fatals",
+      "description": "Installed JDK 17 (Microsoft OpenJDK), Android SDK cmdline-tools, platform-tools, platform 34, build-tools 34.0.0, NDK 26.3.11579264, cmake 3.22.1, emulator + system-image (android-34, google_apis, x86_64) to C:\\Android\\sdk (checksums verified against official published hashes). Added android_app/: Gradle project (AGP 8.5.2, Kotlin 1.9.24) with a minimal Kotlin MainActivity (button + scrollable TextView, mirrors the Win32 smoke test) and a JNI bridge (android_app/app/src/main/cpp/jni_bridge.c) that compiles native_c/core/ directly via CMake (no source duplication) into libomnipack_jni.so for arm64-v8a and x86_64. Verified end-to-end on an AVD (Pixel 5, Android 14, x86_64): APK installs, launches, tapping \"Pack Sample\" calls into the C engine via JNI and renders the packed result (matches the Win32 smoke test output), no crashes in logcat."
+    },
+    {
+      "id": "055",
+      "title": "Plain-C Engine - ML Placement Model",
+      "status": "todo",
+      "verification_method": "Trained model integrated into native_c/core/engine.c as an alternative scoring mode, benchmarked against the GRASP heuristic on held-out scenarios",
+      "description": "Real trained model (not just a smarter heuristic): (1) data-generation script producing many (scenario -> chosen placement) examples via the existing engines, (2) a small supervised model trained in Python to score/rank candidate placements, (3) a hand-written C inference function (small matrix-vector ops, no ML runtime dependency) wired into engine.c. Substantial standalone effort - dataset design, training, and integration - deserves its own scoping pass."
     }
   ]
 }

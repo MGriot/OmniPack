@@ -46,8 +46,9 @@ uv sync
 
 ### 3. Launch the API Server
 ```powershell
-uv run uvicorn main:app --host 127.0.0.1 --port 8000
+uv run start.py
 ```
+*Note: This automatically cleans up any previous instance on port 8000.*
 
 ### 4. Open the Visualizer (GUI)
 To avoid CORS issues and enable full 3D performance, serve the frontend via a local web server:

@@ -1,5 +1,8 @@
-from core.models import Item, Container
-from core.ep import ExtremePoint, generate_extreme_points, get_valid_ep
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container
+from omnipack.core.ep import ExtremePoint, generate_extreme_points, get_valid_ep
 def test_ep_generation():
     container = Container("c1", 100, 100, 100)
     item = Item("i1", 10, 20, 30)

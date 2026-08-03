@@ -1,6 +1,9 @@
 import numpy as np
-from core.models import Item, Container
-from core.engine_v2 import Level2Engine
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container
+from omnipack.core.engine_v2 import Level2Engine
 
 def test_grasp_diversity():
     # Identical setup for two runs

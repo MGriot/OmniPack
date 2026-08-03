@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Briefcase/Toga packaging output (regenerable, large)
+build/
+.briefcase/
+logs/
+
+# Native build output (regenerable)
+native/build/
+native/build-app2/
+native_c/build/
+
+# Android Gradle build output (regenerable, large)
+android_app/app/build/
+android_app/.gradle/
+android_app/.cxx/
+android_app/local.properties

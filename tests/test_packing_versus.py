@@ -1,6 +1,9 @@
 import pytest
-from core.models import Item, Container, PackingVersus
-from core.engine_v2 import Level2Engine
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+from omnipack.core.models import Item, Container, PackingVersus
+from omnipack.core.engine_v2 import Level2Engine
 
 def test_lateral_versus():
     # Lateral should fill X (Width) before Z (Depth)
