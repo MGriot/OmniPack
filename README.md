@@ -18,6 +18,7 @@ independent validator.
 crates/omnipack-geom   shapes, orientations, exact drop / overlap / contact queries (parry3d)
 crates/omnipack-core   model, placer, static physics, validator, metrics, generators
 crates/omnipack-cli    `omnipack` command-line tool
+app/                   Tauri 2 app: src-tauri (Rust commands) + web UI (TypeScript, Vite, Babylon.js)
 docs/                  conventions.md (axes, units, biases, JSON), physics-model.md
 ```
 
@@ -29,6 +30,17 @@ cargo run --release -p omnipack-cli -- gen mixed 1 -o out/mixed.json
 cargo run --release -p omnipack-cli -- pack out/mixed.json -o out/plan.json
 cargo run --release -p omnipack-cli -- bench 5
 ```
+### Windows app (Tauri 2)
+Requires Node 20+ and the WebView2 runtime (preinstalled on Windows 11).
+```
+cd app
+npm install
+npx tauri dev      # run with hot reload
+npx tauri build    # release exe + MSI and NSIS installers in target/release/bundle/
+```
+The app runs the engine in-process (no server). Setups are saved as JSON, and
+the catalog lives in `%APPDATA%\com.omnipack.app\catalog.json`.
+
 To use the official Bischoff & Ratcliff instances, download `thpack1.txt` …
 `thpack7.txt` from the OR-Library and run
 `omnipack thpack thpack1.txt 1 -o br1-1.json`.

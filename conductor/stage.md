@@ -19,7 +19,7 @@ was replaced:
 | # | Deliverable | Status |
 |---|---|---|
 | M1 | Rust core: boxes + cylinders, gravity-drop placer, exact static physics, validator, CLI, benchmarks | **done** |
-| M2 | Tauri 2 app (Windows MSI + Android APK) running M1 with the 3D viewer | next |
+| M2 | Tauri 2 app (Windows MSI + Android APK) running M1 with the 3D viewer | Windows **done**, Android next |
 | M3 | Rapier3D transport simulation (EN 12195-1 braking/cornering) + replay | todo |
 | M4 | BRKGA / NSGA-II Pareto optimizer, beam + local search, diverse solutions | todo |
 | M5 | Any-shape items: mesh import, convex decomposition, stable poses | todo |

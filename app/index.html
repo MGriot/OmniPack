@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OmniPack</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">OmniPack</div>
+      <div class="group">
+        <select id="sample" title="Load a sample setup">
+          <option value="">Sample…</option>
+          <option value="mixed">Mixed truck load</option>
+          <option value="br1">Benchmark BR1 (3 box types)</option>
+          <option value="br4">Benchmark BR4 (10 box types)</option>
+          <option value="br7">Benchmark BR7 (20 box types)</option>
+        </select>
+        <button id="new">New</button>
+        <button id="open">Open…</button>
+        <button id="save">Save…</button>
+      </div>
+      <div class="group">
+        <select id="catalog" title="Saved setups"><option value="">Catalog…</option></select>
+        <button id="cat-save">Save to catalog</button>
+        <button id="cat-delete" title="Delete selected catalog entry">Delete</button>
+      </div>
+      <div class="spacer"></div>
+      <span id="status" class="status"></span>
+      <button id="pack" class="primary">Pack ▶</button>
+    </header>
+
+    <main>
+      <aside id="editor" class="panel"></aside>
+
+      <section id="stage">
+        <canvas id="canvas"></canvas>
+        <div id="empty" class="empty">Load a sample or add items, then press <b>Pack</b>.</div>
+        <div class="overlay top">
+          <div id="container-tabs" class="tabs"></div>
+          <label>Colour by
+            <select id="color-mode">
+              <option value="item">Item</option>
+              <option value="stop">Delivery stop</option>
+              <option value="load">Load on top / limit</option>
+              <option value="margin">Stability margin</option>
+            </select>
+          </label>
+          <button id="reset-cam" title="Reset camera">⟲</button>
+        </div>
+        <div id="legend" class="overlay legend"></div>
+        <div class="overlay bottom">
+          <button id="play" title="Play loading sequence">▶</button>
+          <input id="step" type="range" min="0" max="0" value="0" />
+          <span id="step-label"></span>
+        </div>
+      </section>
+
+      <aside id="results" class="panel"></aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

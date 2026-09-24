@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/omnipack-geom", "crates/omnipack-core", "crates/omnipack-cli"]
+members = ["crates/omnipack-geom", "crates/omnipack-core", "crates/omnipack-cli", "app/src-tauri"]
 
 [workspace.package]
 version = "0.2.0"

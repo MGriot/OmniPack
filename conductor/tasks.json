@@ -1,31 +1,120 @@
 {
   "note": "Rebuild task list. Legacy tasks 001-059 live in tag v0-legacy (conductor/tasks.json there).",
   "legacy_audit": [
-    { "id": "007", "title": "Genetic optimization", "finding": "code deleted in 3aa6895; UI option fell back to Level 2" },
-    { "id": "012", "title": "MCTS engine", "finding": "code deleted in 3aa6895; UI option fell back to Level 2" },
-    { "id": "015", "title": "Rust core (PyO3)", "finding": "core/ crate deleted; Cargo workspace was broken" },
-    { "id": "016", "title": "R-Tree spatial index", "finding": "deleted together with the Rust core" },
-    { "id": "038", "title": "AUTO best-fit mode", "finding": "_determine_best_mode no longer existed" }
+    {
+      "id": "007",
+      "title": "Genetic optimization",
+      "finding": "code deleted in 3aa6895; UI option fell back to Level 2"
+    },
+    {
+      "id": "012",
+      "title": "MCTS engine",
+      "finding": "code deleted in 3aa6895; UI option fell back to Level 2"
+    },
+    {
+      "id": "015",
+      "title": "Rust core (PyO3)",
+      "finding": "core/ crate deleted; Cargo workspace was broken"
+    },
+    {
+      "id": "016",
+      "title": "R-Tree spatial index",
+      "finding": "deleted together with the Rust core"
+    },
+    {
+      "id": "038",
+      "title": "AUTO best-fit mode",
+      "finding": "_determine_best_mode no longer existed"
+    }
   ],
   "tasks": [
-    { "id": "R01", "milestone": "M1", "title": "Freeze legacy, clean rebuild branch", "status": "done",
-      "verification_method": "git tag v0-legacy exists; legacy dirs removed on branch rebuild" },
-    { "id": "R02", "milestone": "M1", "title": "omnipack-geom: shapes, orientations, exact drop/overlap/contact queries (parry3d)", "status": "done",
-      "verification_method": "cargo test -p omnipack-geom" },
-    { "id": "R03", "milestone": "M1", "title": "Static physics: support polygon, CoG/resultant margin, tension-free load distribution, full propagation", "status": "done",
-      "verification_method": "cargo test -p omnipack-core statics; tests/physics.rs" },
-    { "id": "R04", "milestone": "M1", "title": "Constructive placer: anchors, gravity drop, fill biases, balance term, multi-container, unpacked reasons", "status": "done",
-      "verification_method": "tests/properties.rs (every plan and every loading prefix validates)" },
-    { "id": "R05", "milestone": "M1", "title": "Independent validator + metrics (accessibility, axle loads, CoG limits)", "status": "done",
-      "verification_method": "tests/physics.rs regression cases" },
-    { "id": "R06", "milestone": "M1", "title": "CLI: pack, generators (BR-style, mixed truck), OR-Library thpack import, bench", "status": "done",
-      "verification_method": "cargo run --release -p omnipack-cli -- bench 5" },
-    { "id": "R07", "milestone": "M2", "title": "Tauri 2 shell: pack command with progress/cancel events, catalog storage", "status": "todo" },
-    { "id": "R08", "milestone": "M2", "title": "Web UI (TS + Vite + Babylon.js): editors, strategy panel, 3D plan view, step-by-step loading", "status": "todo" },
-    { "id": "R09", "milestone": "M2", "title": "Windows MSI + Android APK builds, CI", "status": "todo" },
-    { "id": "R10", "milestone": "M3", "title": "omnipack-sim: Rapier3D settle + transport scenarios, friction per material", "status": "todo" },
-    { "id": "R11", "milestone": "M4", "title": "omnipack-opt: BRKGA decoder over the placer, NSGA-II Pareto set, time budgets", "status": "todo" },
-    { "id": "R12", "milestone": "M5", "title": "Mesh import, convex decomposition, stable resting poses", "status": "todo" },
-    { "id": "R13", "milestone": "M6", "title": "Feature logging, LightGBM ranker, ONNX inference via tract", "status": "todo" }
+    {
+      "id": "R01",
+      "milestone": "M1",
+      "title": "Freeze legacy, clean rebuild branch",
+      "status": "done",
+      "verification_method": "git tag v0-legacy exists; legacy dirs removed on branch rebuild"
+    },
+    {
+      "id": "R02",
+      "milestone": "M1",
+      "title": "omnipack-geom: shapes, orientations, exact drop/overlap/contact queries (parry3d)",
+      "status": "done",
+      "verification_method": "cargo test -p omnipack-geom"
+    },
+    {
+      "id": "R03",
+      "milestone": "M1",
+      "title": "Static physics: support polygon, CoG/resultant margin, tension-free load distribution, full propagation",
+      "status": "done",
+      "verification_method": "cargo test -p omnipack-core statics; tests/physics.rs"
+    },
+    {
+      "id": "R04",
+      "milestone": "M1",
+      "title": "Constructive placer: anchors, gravity drop, fill biases, balance term, multi-container, unpacked reasons",
+      "status": "done",
+      "verification_method": "tests/properties.rs (every plan and every loading prefix validates)"
+    },
+    {
+      "id": "R05",
+      "milestone": "M1",
+      "title": "Independent validator + metrics (accessibility, axle loads, CoG limits)",
+      "status": "done",
+      "verification_method": "tests/physics.rs regression cases"
+    },
+    {
+      "id": "R06",
+      "milestone": "M1",
+      "title": "CLI: pack, generators (BR-style, mixed truck), OR-Library thpack import, bench",
+      "status": "done",
+      "verification_method": "cargo run --release -p omnipack-cli -- bench 5"
+    },
+    {
+      "id": "R07",
+      "milestone": "M2",
+      "title": "Tauri 2 shell: in-process pack command, samples, JSON catalog, file open/save",
+      "status": "done",
+      "verification_method": "Release exe driven over WebView2 DevTools: sample -> pack -> valid plan; catalog round-trip",
+      "note": "Progress/cancel events deferred to M4 (packing is < 1 s today)"
+    },
+    {
+      "id": "R08",
+      "milestone": "M2",
+      "title": "Web UI (TS + Vite + Babylon.js): editors, strategy panel, 3D plan view, step-by-step loading",
+      "status": "done",
+      "verification_method": "Screenshots of mixed and BR7 plans in the release build"
+    },
+    {
+      "id": "R09",
+      "milestone": "M2",
+      "title": "Windows MSI + Android APK builds, CI",
+      "status": "in_progress",
+      "note": "Windows MSI + NSIS done; Android APK and CI pending"
+    },
+    {
+      "id": "R10",
+      "milestone": "M3",
+      "title": "omnipack-sim: Rapier3D settle + transport scenarios, friction per material",
+      "status": "todo"
+    },
+    {
+      "id": "R11",
+      "milestone": "M4",
+      "title": "omnipack-opt: BRKGA decoder over the placer, NSGA-II Pareto set, time budgets",
+      "status": "todo"
+    },
+    {
+      "id": "R12",
+      "milestone": "M5",
+      "title": "Mesh import, convex decomposition, stable resting poses",
+      "status": "todo"
+    },
+    {
+      "id": "R13",
+      "milestone": "M6",
+      "title": "Feature logging, LightGBM ranker, ONNX inference via tract",
+      "status": "todo"
+    }
   ]
 }
