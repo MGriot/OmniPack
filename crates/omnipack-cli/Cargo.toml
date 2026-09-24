@@ -1,0 +1,15 @@
+[package]
+name = "omnipack-cli"
+description = "Command-line packer and benchmark runner for OmniPack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "omnipack"
+path = "src/main.rs"
+
+[dependencies]
+omnipack-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

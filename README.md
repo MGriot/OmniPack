@@ -1,74 +1,37 @@
-# OmniPack-Hybrid 📦 ⚛️
+# OmniPack
 
-**Cross-Platform Ultra-Performance 3D Spatial Optimization Engine**
+A 3D loading planner for containers and trucks. You give it a container and a
+list of items (boxes and cylinders, with mass, stacking limits, fragility,
+"this side up" and delivery stops). It returns a loading plan that is physically
+valid: nothing floats, overlaps, tips, rolls or gets crushed, and payload, axle
+and centre-of-gravity limits are respected. Every plan is re-checked by an
+independent validator.
 
-OmniPack-Hybrid is an advanced 3D packing and space optimization system designed to scale across hardware. It features a high-performance Rust-inspired logic implemented in Python with Numba JIT acceleration, a physics-accurate stability engine, and an intelligent Monte Carlo "thinking" search.
+> **Status: rebuild in progress** (branch `rebuild`). Milestone M1, the Rust
+> engine and CLI, is done. The Tauri app for Windows and Android (M2), the
+> transport simulation (M3), the optimizer (M4), arbitrary meshes (M5) and the
+> learned ranker (M6) come next; see `conductor/stage.md`. The previous Python,
+> C, C++ and Toga code is kept in tag `v0-legacy`.
 
----
-
-## 🚀 Core Features
-
-- **Hybrid Calculation Architecture**: 
-  - **Level 1 (Deterministic)**: Optimized for mobile/web (Legacy mode).
-  - **Level 2 (Accelerated)**: PC/Workstation grade using Multithreading & Numba JIT.
-- **Intelligent Search**: 
-  - **MCTS Engine**: Monte Carlo Tree Search mimics human foresight to find global minima for wasted space.
-  - **Genetic Optimization**: Evolutionary sequence discovery for complex loadouts.
-- **Real-World Physics**: 
-  - **Static Stability**: Center of Gravity (CoG) enforcement prevents unrealistic tipping.
-  - **Recursive Load Transfer**: 100% accurate weight distribution based on contact surface area.
-  - **Stacking Constraints**: Per-item weight limits and fragile item protection.
-- **Interactive 3D GUI**: Built with Babylon.js, featuring real-time previews, color pickers, and multi-scenario result toggling. Standard Y-up coordinate system for intuitive WxHxD alignment.
-
----
-
-## 🛠️ Tech Stack
-
-- **Engine**: Python 3.11+, Numba (JIT Compiler), NumPy.
-- **API**: FastAPI, Uvicorn, Pydantic.
-- **Environment**: Managed via `uv`.
-- **Frontend**: Babylon.js (WebGL/WebGPU), HTML5/CSS3.
-
----
-
-## 🏁 Quick Start
-
-### 1. Prerequisites
-Ensure you have `uv` installed:
-```powershell
-pip install uv
+## Layout
+```
+crates/omnipack-geom   shapes, orientations, exact drop / overlap / contact queries (parry3d)
+crates/omnipack-core   model, placer, static physics, validator, metrics, generators
+crates/omnipack-cli    `omnipack` command-line tool
+docs/                  conventions.md (axes, units, biases, JSON), physics-model.md
 ```
 
-### 2. Initialize Environment
-```powershell
-uv sync
+## Quick start
+Requires Rust 1.82+.
 ```
-
-### 3. Launch the API Server
-```powershell
-uv run start.py
+cargo test --workspace
+cargo run --release -p omnipack-cli -- gen mixed 1 -o out/mixed.json
+cargo run --release -p omnipack-cli -- pack out/mixed.json -o out/plan.json
+cargo run --release -p omnipack-cli -- bench 5
 ```
-*Note: This automatically cleans up any previous instance on port 8000.*
+To use the official Bischoff & Ratcliff instances, download `thpack1.txt` …
+`thpack7.txt` from the OR-Library and run
+`omnipack thpack thpack1.txt 1 -o br1-1.json`.
 
-### 4. Open the Visualizer (GUI)
-The server serves the visualizer itself, on the same origin as the API - just navigate to:
-
-**`http://127.0.0.1:8000/`**
-
-Don't serve `viewer.html` from a separate static server (e.g. `python -m http.server`) or open the file directly - `viewer.html`'s API calls are relative (`fetch("/pack")`, `fetch("/catalog")`), so they only resolve correctly when the page is loaded from the same origin as the API. Opening it any other way, or without the server running, shows "API unreachable".
-
-For a genuinely standalone build with **no server at all** (desktop/mobile app, not this dev workflow), see `docs/ANDROID_GUIDE.md` and `src/omnipack/app.py`.
-
----
-
-## 📚 Documentation Structure (Diátaxis)
-
-- [Tutorials](./docs/tutorials/): Step-by-step lessons for beginners.
-- [How-to Guides](./docs/how-to/): Practical solutions for specific packing challenges.
-- [Reference](./docs/reference/): Technical API specifications and coordinate system details.
-- [Explanations](./docs/explanation/): Deep dives into the Physics Engine and MCTS logic.
-
----
-
-## ⚖️ License
-Proprietary / Internal Development. All rights reserved.
+## License
+Proprietary / internal development. All rights reserved.

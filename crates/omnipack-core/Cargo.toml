@@ -1,0 +1,18 @@
+[package]
+name = "omnipack-core"
+description = "Domain model, constructive placer and static physics checks for OmniPack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+omnipack-geom.workspace = true
+nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

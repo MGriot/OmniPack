@@ -1,5 +1,10 @@
 # OmniPack-Hybrid (Cross-Platform Ultra-Performance)
 
+> **Nota (rebuild, 2026-09):** la visione di prodotto resta valida, ma lo stack
+> tecnologico delle sezioni 2, 5 e 8 è sostituito da: un unico motore Rust
+> (`crates/`), app Tauri 2 per Windows e Android, simulazione dinamica Rapier3D,
+> ottimizzazione BRKGA/NSGA-II e ranker ONNX opzionale. Vedi `conductor/stage.md`.
+
 ## 1. Visione del Prodotto
 Sviluppare un motore di ottimizzazione spaziale 3D capace di adattarsi all'hardware ospite e di gestire vincoli logistici complessi (FIFO, LIFO, Accessibilità).
 - **Su Mobile:** Esecuzione rapida tramite core nativo (Rust/C++) o Python ottimizzato, con UI cross-platform.
