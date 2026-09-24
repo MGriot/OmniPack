@@ -51,11 +51,13 @@ uv run start.py
 *Note: This automatically cleans up any previous instance on port 8000.*
 
 ### 4. Open the Visualizer (GUI)
-To avoid CORS issues and enable full 3D performance, serve the frontend via a local web server:
-```powershell
-uv run python -m http.server 8080
-```
-Then navigate to **`http://localhost:8080/viewer.html`** in your browser.
+The server serves the visualizer itself, on the same origin as the API - just navigate to:
+
+**`http://127.0.0.1:8000/`**
+
+Don't serve `viewer.html` from a separate static server (e.g. `python -m http.server`) or open the file directly - `viewer.html`'s API calls are relative (`fetch("/pack")`, `fetch("/catalog")`), so they only resolve correctly when the page is loaded from the same origin as the API. Opening it any other way, or without the server running, shows "API unreachable".
+
+For a genuinely standalone build with **no server at all** (desktop/mobile app, not this dev workflow), see `docs/ANDROID_GUIDE.md` and `src/omnipack/app.py`.
 
 ---
 

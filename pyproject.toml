@@ -59,6 +59,20 @@ requires = [
     "toga-android>=0.5.3",
 ]
 cleartext_traffic = true
+# Registers omnipack.android_webviewclient.OmniPackWebViewClient as a
+# Chaquopy static_proxy (a Python class extending android.webkit.WebViewClient)
+# so it can serve viewer.html/vendor/ via WebViewAssetLoader - direct file://
+# loading of Chaquopy's app-private extracted files is blocked by WebView's
+# sandbox (net::ERR_ACCESS_DENIED).
+build_gradle_extra_content = """
+android {
+    defaultConfig {
+        python {
+            staticProxy "omnipack.android_webviewclient"
+        }
+    }
+}
+"""
 
 [tool.briefcase.app.omnipack.iOS]
 requires = [
