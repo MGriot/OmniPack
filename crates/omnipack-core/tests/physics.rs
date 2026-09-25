@@ -1,7 +1,7 @@
 //! Physics regression cases: hand-built plans the validator must reject or
 //! accept, and packer behaviour on classic stability traps.
 
-use omnipack_core::validate::validate;
+use omnipack_core::validate::{self, validate};
 use omnipack_core::*;
 use omnipack_geom::{Orientation, Shape};
 
@@ -32,6 +32,7 @@ fn spec(id: &str, shape: Shape, mass: f64) -> ItemSpec {
         zone: Zone::Any,
         com_offset: [0.0; 3],
         color: None,
+        friction: None,
     }
 }
 
@@ -51,6 +52,7 @@ fn place(item: &ItemSpec, seq: usize, pos: [f64; 3]) -> Placement {
         support_margin: 0.0,
         stop: 0,
         color: None,
+        needs_chocks: false,
     }
 }
 
@@ -147,13 +149,16 @@ fn lying_cylinder_needs_chocks_or_a_groove() {
         p.center_of_mass = [p.position[0] + 200.0, p.position[1] + 50.0, p.position[2] + 50.0];
         p
     };
-    // Alone in the middle of the floor: free to roll.
+    let no_chocks = PackOptions { physics: PhysicsOptions { use_chocks: false, ..Default::default() }, ..opts() };
+    // Alone in the middle of the floor: free to roll unless wedges are used.
     let plan = [fix_com(pipe_lying(0, [0.0, 0.0, 400.0]))];
-    let v = validate(&container(), std::slice::from_ref(&pipe), &opts(), &plan);
+    let v = validate(&container(), std::slice::from_ref(&pipe), &no_chocks, &plan);
     assert!(v.iter().any(|v| matches!(v, Violation::MayRoll { .. })), "{v:?}");
-    // Wedged between the back wall and a neighbour: fine.
+    assert!(validate(&container(), std::slice::from_ref(&pipe), &opts(), &plan).is_empty());
+    assert_eq!(validate::needs_chocks(&container(), std::slice::from_ref(&pipe), &opts(), &plan), vec![true]);
+    // Wedged between the back wall and a neighbour: fine without chocks.
     let plan = [fix_com(pipe_lying(0, [0.0, 0.0, 0.0])), fix_com(pipe_lying(1, [0.0, 0.0, 100.0]))];
-    let v = validate(&container(), &[pipe], &opts(), &plan);
+    let v = validate(&container(), std::slice::from_ref(&pipe), &no_chocks, &plan);
     assert!(!v.iter().any(|v| matches!(v, Violation::MayRoll { item } if item == "pipe#0")), "{v:?}");
 }
 
@@ -170,4 +175,58 @@ fn axle_and_payload_limits_are_checked() {
     let v = validate(&c, &[b], &opts(), &plan);
     assert!(v.iter().any(|v| matches!(v, Violation::PayloadExceeded { .. })));
     assert!(v.iter().any(|v| matches!(v, Violation::AxleOverloaded { axle: 0, .. })));
+}
+
+fn road() -> PackOptions {
+    PackOptions { physics: PhysicsOptions { secure_load_end: false, ..Default::default() }, ..opts() }
+}
+
+fn issues(plan: &[Placement], specs: &[ItemSpec], o: &PackOptions) -> Vec<TransportIssue> {
+    validate::transport(&container(), specs, o, plan).into_iter().flat_map(|r| r.issues).collect()
+}
+
+#[test]
+fn free_standing_tall_item_slides_and_tips_under_braking() {
+    let tall = spec("tall", Shape::Box { w: 200.0, h: 1000.0, d: 200.0 }, 100.0);
+    let plan = [place(&tall, 0, [400.0, 0.0, 400.0])];
+    let found = issues(&plan, std::slice::from_ref(&tall), &road());
+    let has = |k: IssueKind, d: Direction| found.iter().any(|i| i.kind == k && i.direction == Some(d));
+    // mu 0.4 < 0.8 g forward; lever 500 mm vs arm 100 mm.
+    assert!(has(IssueKind::Sliding, Direction::Forward), "{found:?}");
+    assert!(has(IssueKind::Tipping, Direction::Forward), "{found:?}");
+    assert!(has(IssueKind::Tipping, Direction::Left), "{found:?}");
+    let slide = found.iter().find(|i| i.kind == IssueKind::Sliding && i.direction == Some(Direction::Forward)).unwrap();
+    // 100 kg * 9.81 * (0.8 - 0.4) = 392.4 N
+    assert!((slide.required - 0.3924).abs() < 1e-3, "{slide:?}");
+}
+
+#[test]
+fn walls_and_neighbours_block_sliding() {
+    // A full-width row against the front wall: blocked forward and sideways.
+    let b = spec("b", Shape::Box { w: 500.0, h: 200.0, d: 300.0 }, 50.0);
+    let plan = [place(&b, 0, [0.0, 0.0, 0.0]), place(&b, 1, [500.0, 0.0, 0.0])];
+    let found = issues(&plan, std::slice::from_ref(&b), &road());
+    assert!(!found.iter().any(|i| i.kind == IssueKind::Sliding && i.direction != Some(Direction::Backward)), "{found:?}");
+    // Nothing behind them: 0.5 g backward > mu 0.4.
+    assert_eq!(found.iter().filter(|i| i.kind == IssueKind::Sliding && i.direction == Some(Direction::Backward)).count(), 2);
+    // Low and wide: no tipping anywhere.
+    assert!(!found.iter().any(|i| i.kind == IssueKind::Tipping), "{found:?}");
+    // A locking bar across the load end blocks them backward too.
+    let barred = PackOptions { physics: PhysicsOptions::default(), ..opts() };
+    assert!(issues(&plan, std::slice::from_ref(&b), &barred).is_empty());
+}
+
+#[test]
+fn sea_motion_overloads_stacks_dynamically() {
+    let bottom = ItemSpec { max_load_on_top: Some(15.0), ..spec("bottom", Shape::Box { w: 100.0, h: 100.0, d: 100.0 }, 10.0) };
+    let b = spec("b", Shape::Box { w: 100.0, h: 100.0, d: 100.0 }, 10.0);
+    let plan = [place(&bottom, 0, [0.0; 3]), place(&b, 1, [0.0, 100.0, 0.0])];
+    let specs = [bottom, b];
+    let sea_c = TransportCase::presets().into_iter().find(|c| c.name.starts_with("Sea area C")).unwrap();
+    let o = PackOptions { physics: PhysicsOptions { transport: vec![sea_c], dynamic_stacking: true, ..Default::default() }, ..opts() };
+    // Static: 10 kg on a 15 kg limit is fine; at 1.8 g it is 18 kg.
+    assert!(validate(&container(), &specs, &o, &plan).is_empty());
+    let found = issues(&plan, &specs, &o);
+    let over = found.iter().find(|i| i.kind == IssueKind::StackOverload).expect("overload");
+    assert!((over.required - 3.0).abs() < 1e-6, "{over:?}");
 }

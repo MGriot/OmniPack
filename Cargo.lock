@@ -2296,11 +2296,13 @@ name = "omnipack-app"
 version = "0.2.0"
 dependencies = [
  "omnipack-core",
+ "omnipack-geom",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
 ]
 
 [[package]]

@@ -1,7 +1,8 @@
 //! Tauri shell: exposes the packing engine and a small file-based catalog to
 //! the web UI. All computation runs in-process; there is no server or port.
 
-use omnipack_core::{generate, pack, PackRequest, PackResult};
+use omnipack_core::{generate, pack, PackRequest, PackResult, TransportCase};
+use omnipack_geom::{Orientation, OrientedShape, RenderMesh, Shape};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -20,12 +21,29 @@ async fn pack_request(request: PackRequest) -> CmdResult<PackResult> {
 fn sample_request(kind: String, seed: u64) -> CmdResult<PackRequest> {
     match kind.as_str() {
         "mixed" => Ok(generate::mixed(seed)),
+        "shapes" => Ok(generate::shapes(seed)),
         k if k.starts_with("br") => {
             let class = k[2..].parse().map_err(|_| format!("bad sample `{k}`"))?;
             generate::br_like(class, seed).ok_or_else(|| format!("bad sample `{k}`"))
         }
         _ => Err(format!("unknown sample `{kind}`")),
     }
+}
+
+/// Built-in transport acceleration profiles (road, rail, sea).
+#[tauri::command]
+fn transport_presets() -> Vec<TransportCase> {
+    TransportCase::presets()
+}
+
+/// Triangle mesh of a shape in one orientation, centred on its bounding box,
+/// so the viewer draws exactly the geometry the physics uses.
+#[tauri::command]
+fn shape_mesh(shape: Shape, orientation: Orientation) -> CmdResult<RenderMesh> {
+    if !shape.is_valid() {
+        return Err(format!("invalid shape {shape:?}"));
+    }
+    Ok(OrientedShape::new(&shape, orientation, [0.0; 3]).render_mesh())
 }
 
 /// Saved setups, keyed by name. Stored as one JSON file in the app data dir.
@@ -81,30 +99,21 @@ fn catalog_delete(app: AppHandle, name: String) -> CmdResult<()> {
     write_catalog(&app, &c)
 }
 
-/// Writes a text file chosen by the user through the save dialog.
-#[tauri::command]
-fn write_text_file(path: String, contents: String) -> CmdResult<()> {
-    std::fs::write(&path, contents).map_err(|e| format!("{path}: {e}"))
-}
-
-#[tauri::command]
-fn read_text_file(path: String) -> CmdResult<String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // File access only to paths the user picks in a dialog.
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             pack_request,
             sample_request,
+            transport_presets,
+            shape_mesh,
             catalog_list,
             catalog_load,
             catalog_save,
             catalog_delete,
-            write_text_file,
-            read_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OmniPack");

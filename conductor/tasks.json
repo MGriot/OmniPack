@@ -89,8 +89,15 @@
       "id": "R09",
       "milestone": "M2",
       "title": "Windows MSI + Android APK builds, CI",
-      "status": "in_progress",
-      "note": "Windows MSI + NSIS done; Android APK and CI pending"
+      "status": "done",
+      "note": "Windows MSI + NSIS; Android universal APK (arm64 + x86_64), tested on emulator. CI still pending."
+    },
+    {
+      "id": "R09b",
+      "milestone": "M2b",
+      "title": "Shapes (sphere, cone, pyramid, prism, L-profile), transport profiles + securing report, FIFO/LIFO + priorities, timeline stepping + next-item preview, legend isolation, phone layout",
+      "status": "done",
+      "verification_method": "cargo test --workspace (property tests over all shapes/options); app driven over CDP on Windows and Android emulator"
     },
     {
       "id": "R10",

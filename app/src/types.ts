@@ -3,11 +3,68 @@
 
 export type Shape =
   | { kind: "box"; w: number; h: number; d: number }
-  | { kind: "cylinder"; radius: number; length: number };
+  | { kind: "cylinder"; radius: number; length: number }
+  | { kind: "sphere"; radius: number }
+  | { kind: "cone"; radius: number; height: number }
+  | { kind: "pyramid"; w: number; d: number; height: number }
+  | { kind: "prism"; sides: number; radius: number; length: number }
+  | { kind: "l_profile"; a: number; b: number; thickness: number; length: number };
+
+export type ShapeKind = Shape["kind"];
+
+export const SHAPE_KINDS: [ShapeKind, string][] = [
+  ["box", "Box"],
+  ["cylinder", "Cylinder / drum"],
+  ["sphere", "Sphere"],
+  ["cone", "Cone"],
+  ["pyramid", "Pyramid"],
+  ["prism", "Prism (n sides)"],
+  ["l_profile", "L-profile (angle)"],
+];
+
+export function defaultShape(kind: ShapeKind): Shape {
+  switch (kind) {
+    case "box": return { kind, w: 400, h: 300, d: 300 };
+    case "cylinder": return { kind, radius: 150, length: 800 };
+    case "sphere": return { kind, radius: 200 };
+    case "cone": return { kind, radius: 200, height: 500 };
+    case "pyramid": return { kind, w: 500, d: 500, height: 400 };
+    case "prism": return { kind, sides: 3, radius: 200, length: 1200 };
+    case "l_profile": return { kind, a: 200, b: 200, thickness: 20, length: 2000 };
+  }
+}
 
 export type Orientation = "WHD" | "DHW" | "HWD" | "WDH" | "HDW" | "DWH";
 export type Zone = "any" | "back" | "front";
 export type FillBias = "wall_building" | "floor_first" | "longitudinal" | "lateral" | "corner_first";
+export type StopOrder = "lifo" | "fifo";
+export type LoadPriority = "volume" | "mass" | "base_area" | "height" | "as_listed";
+
+export interface TransportCase {
+  name: string;
+  forward: number;
+  backward: number;
+  sideways: number;
+  vertical_min: number;
+  vertical_max: number;
+}
+
+export interface PhysicsOptions {
+  transport: TransportCase[];
+  check_sliding: boolean;
+  check_tipping: boolean;
+  dynamic_stacking: boolean;
+  default_friction: number;
+  use_chocks: boolean;
+  secure_load_end: boolean;
+}
+
+/** Same as the first Rust preset; used until the presets are loaded. */
+export const ROAD: TransportCase = { name: "Road (EN 12195-1)", forward: 0.8, backward: 0.5, sideways: 0.5, vertical_min: 1.0, vertical_max: 1.0 };
+
+export function defaultPhysics(): PhysicsOptions {
+  return { transport: [ROAD], check_sliding: true, check_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true };
+}
 
 export interface ItemSpec {
   id: string;
@@ -23,6 +80,7 @@ export interface ItemSpec {
   zone: Zone;
   com_offset: [number, number, number];
   color: string | null;
+  friction: number | null;
 }
 
 export interface Axle {
@@ -49,6 +107,9 @@ export interface ContainerSpec {
 
 export interface PackOptions {
   bias: FillBias;
+  stop_order: StopOrder;
+  priority: LoadPriority;
+  physics: PhysicsOptions;
   stability_margin: number;
   min_support_ratio: number;
   balance_weight: number;
@@ -77,6 +138,7 @@ export interface Placement {
   load_on_top: number;
   support_margin: number;
   stop: number;
+  needs_chocks: boolean;
   color?: string;
 }
 
@@ -94,12 +156,35 @@ export interface Metrics {
 
 export type Violation = { kind: string } & Record<string, unknown>;
 
+export type Direction = "forward" | "backward" | "left" | "right";
+export type IssueKind = "sliding" | "tipping" | "stack_overload";
+
+export interface TransportIssue {
+  item: string;
+  kind: IssueKind;
+  direction?: Direction;
+  acceleration: number;
+  /** kN of securing force; kg of excess load for stack overloads. */
+  required: number;
+}
+
+export interface TransportResult {
+  case: string;
+  issues: TransportIssue[];
+}
+
 export interface ContainerPlan {
   id: string;
   size: [number, number, number];
   placements: Placement[];
   metrics: Metrics;
   violations: Violation[];
+  transport: TransportResult[];
+}
+
+export interface RenderMesh {
+  positions: number[];
+  indices: number[];
 }
 
 export interface Unpacked {
@@ -131,12 +216,15 @@ export const AXIS_MAP: Record<Orientation, [number, number, number]> = {
 export function defaultOptions(): PackOptions {
   return {
     bias: "wall_building",
+    stop_order: "lifo",
+    priority: "volume",
+    physics: defaultPhysics(),
     stability_margin: 0.1,
     min_support_ratio: 0.5,
     balance_weight: 0.3,
     allow_rotation: true,
     max_containers: 50,
-    max_stability_checks: 400,
+    max_stability_checks: 5000,
     seed: 0,
   };
 }
@@ -156,5 +244,6 @@ export function newItem(n: number): ItemSpec {
     zone: "any",
     com_offset: [0, 0, 0],
     color: null,
+    friction: null,
   };
 }

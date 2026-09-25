@@ -25,6 +25,9 @@ pub struct Placement {
     /// Distance from the load resultant to the edge of the support polygon, mm.
     pub support_margin: f64,
     pub stop: u32,
+    /// Round item on a line/point support that must be secured with wedges.
+    #[serde(default)]
+    pub needs_chocks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
 }
@@ -86,6 +89,47 @@ pub enum Violation {
     OrientationNotAllowed { item: String },
 }
 
+/// Direction of an acceleration acting on the cargo. Forward = towards the
+/// front wall (`z = 0`), e.g. braking of a vehicle whose door is at the rear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Direction {
+    Forward,
+    Backward,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueKind {
+    /// Friction alone cannot hold the item and nothing blocks it.
+    Sliding,
+    /// The item (with its load) would tip and nothing high enough blocks it.
+    Tipping,
+    /// The dynamic load on top exceeds the item's stacking limit.
+    StackOverload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportIssue {
+    pub item: String,
+    pub kind: IssueKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<Direction>,
+    /// Acceleration of the case in that direction, g (vertical factor for overloads).
+    pub acceleration: f64,
+    /// Securing force still needed (lashing, blocking), kN. For stack
+    /// overloads: the excess load, kg.
+    pub required: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportResult {
+    pub case: String,
+    pub issues: Vec<TransportIssue>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerPlan {
     pub id: String,
@@ -94,6 +138,9 @@ pub struct ContainerPlan {
     pub metrics: Metrics,
     /// Independent re-verification of this container. Empty = physically valid.
     pub violations: Vec<Violation>,
+    /// Quasi-static transport checks, one entry per selected case.
+    #[serde(default)]
+    pub transport: Vec<TransportResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

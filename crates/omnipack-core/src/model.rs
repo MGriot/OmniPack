@@ -53,6 +53,9 @@ pub struct ItemSpec {
     pub com_offset: [f64; 3],
     #[serde(default)]
     pub color: Option<String>,
+    /// Friction coefficient against its support. `None` = the physics default.
+    #[serde(default)]
+    pub friction: Option<f64>,
 }
 
 impl ItemSpec {
@@ -154,10 +157,114 @@ impl FillBias {
     }
 }
 
+/// Order in which delivery stops are loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopOrder {
+    /// Last in, first out (rear-door vehicles): later stops are loaded first,
+    /// deep inside, and the first stop ends up at the door.
+    #[default]
+    Lifo,
+    /// First in, first out (side-loading, drive-through): the first stop is
+    /// loaded first and placed nearest the unloading door; filling runs from
+    /// the door towards the back.
+    Fifo,
+}
+
+/// Which units go first within the same stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadPriority {
+    /// Largest volume first (usually the best fill).
+    #[default]
+    Volume,
+    /// Heaviest first (keeps the centre of gravity low).
+    Mass,
+    /// Largest footprint first (stable floor layers).
+    BaseArea,
+    /// Tallest first.
+    Height,
+    /// In the order the items are listed, all units of an item together.
+    AsListed,
+}
+
+/// Quasi-static acceleration case (in g) as used by EN 12195-1 and the
+/// IMO/ILO/UNECE CTU Code. Forward = towards the front wall (`z = 0`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransportCase {
+    pub name: String,
+    pub forward: f64,
+    pub backward: f64,
+    pub sideways: f64,
+    /// Smallest vertical factor (reduces friction), e.g. 1.0 on roads, 0.5 at sea.
+    pub vertical_min: f64,
+    /// Largest vertical factor (dynamic load on stacks).
+    pub vertical_max: f64,
+}
+
+impl TransportCase {
+    fn new(name: &str, forward: f64, backward: f64, sideways: f64, vertical_min: f64, vertical_max: f64) -> Self {
+        TransportCase { name: name.into(), forward, backward, sideways, vertical_min, vertical_max }
+    }
+
+    /// Built-in profiles. Values follow EN 12195-1:2010 (road) and the CTU
+    /// Code 2014 annex 5 (rail, sea areas A/B/C); check the rules that apply
+    /// to your transport.
+    pub fn presets() -> Vec<TransportCase> {
+        vec![
+            TransportCase::new("Road (EN 12195-1)", 0.8, 0.5, 0.5, 1.0, 1.0),
+            TransportCase::new("Rail, combined transport", 0.5, 0.5, 0.5, 0.7, 1.3),
+            TransportCase::new("Rail wagon, shunting impacts", 1.0, 1.0, 0.5, 0.7, 1.3),
+            TransportCase::new("Sea area A (Baltic, sheltered)", 0.3, 0.3, 0.5, 0.5, 1.5),
+            TransportCase::new("Sea area B (North Sea, Med.)", 0.3, 0.3, 0.7, 0.3, 1.7),
+            TransportCase::new("Sea area C (unrestricted)", 0.4, 0.4, 0.8, 0.2, 1.8),
+        ]
+    }
+}
+
+/// Which physics the plan is checked against.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PhysicsOptions {
+    /// Transport accelerations to check (empty = static loading only).
+    pub transport: Vec<TransportCase>,
+    /// Report items that would slide unless blocked or lashed.
+    pub check_sliding: bool,
+    /// Report items that would tip unless blocked or lashed.
+    pub check_tipping: bool,
+    /// Multiply loads on top by the vertical factor when checking stack limits.
+    pub dynamic_stacking: bool,
+    /// Friction coefficient for items that do not set their own.
+    pub default_friction: f64,
+    /// Round items resting on a line or point (lying drums, balls) are held by
+    /// wedges. Off: they must be wedged in by walls or neighbours.
+    pub use_chocks: bool,
+    /// The open face of a partial load is closed with a locking bar, gate or
+    /// dunnage, which blocks like a wall.
+    pub secure_load_end: bool,
+}
+
+impl Default for PhysicsOptions {
+    fn default() -> Self {
+        PhysicsOptions {
+            transport: vec![TransportCase::presets().remove(0)],
+            check_sliding: true,
+            check_tipping: true,
+            dynamic_stacking: false,
+            default_friction: 0.4,
+            use_chocks: true,
+            secure_load_end: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PackOptions {
     pub bias: FillBias,
+    pub stop_order: StopOrder,
+    pub priority: LoadPriority,
+    pub physics: PhysicsOptions,
     /// Required distance from the centre of gravity (or load resultant) to the
     /// edge of the support polygon, as a fraction of the item's smaller
     /// half-footprint. 0 = merely not tipping; 0.5 = a lot of safety.
@@ -177,12 +284,15 @@ impl Default for PackOptions {
     fn default() -> Self {
         PackOptions {
             bias: FillBias::default(),
+            stop_order: StopOrder::default(),
+            priority: LoadPriority::default(),
+            physics: PhysicsOptions::default(),
             stability_margin: 0.1,
             min_support_ratio: 0.5,
             balance_weight: 0.3,
             allow_rotation: true,
             max_containers: 50,
-            max_stability_checks: 400,
+            max_stability_checks: 5000,
             seed: 0,
         }
     }

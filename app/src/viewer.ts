@@ -1,6 +1,7 @@
 // Babylon.js view of one container plan. Engine coordinates map 1:1 to
-// Babylon's (Y up); positions are AABB minimum corners, so meshes are
-// centred at position + size / 2.
+// Babylon's (Y up); positions are AABB minimum corners, and item meshes come
+// from the engine (centred on the AABB), so what you see is what the physics
+// checked.
 
 import {
   ArcRotateCamera,
@@ -16,8 +17,14 @@ import {
   Scene,
   StandardMaterial,
   Vector3,
+  VertexData,
 } from "@babylonjs/core";
-import { AXIS_MAP, type ContainerPlan, type Placement } from "./types";
+import type { ContainerPlan, Placement, RenderMesh } from "./types";
+
+/** Opacity of items outside the legend focus. */
+const DIMMED = 0.1;
+/** Opacity of the "next item" preview. */
+const GHOST = 0.4;
 
 export class PlanViewer {
   private engine: Engine;
@@ -25,8 +32,11 @@ export class PlanViewer {
   private camera: ArcRotateCamera;
   private meshes: { placement: Placement; mesh: Mesh }[] = [];
   private staticMeshes: (Mesh | LinesMesh)[] = [];
+  private templates = new Map<string, Mesh>();
   private materials = new Map<string, StandardMaterial>();
   private highlighted: string | null = null;
+  private focus: ((p: Placement) => boolean) | null = null;
+  private visibleCount = Infinity;
   private pickHandler: (p: Placement | null) => void = () => {};
   private size: [number, number, number] = [1, 1, 1];
 
@@ -37,7 +47,6 @@ export class PlanViewer {
     this.camera = new ArcRotateCamera("cam", -Math.PI / 3, Math.PI / 3, 10, Vector3.Zero(), this.scene);
     this.camera.attachControl(canvas, true);
     this.camera.wheelDeltaPercentage = 0.02;
-    this.camera.useFramingBehavior = false;
     const hemi = new HemisphericLight("hemi", new Vector3(0.2, 1, -0.3), this.scene);
     hemi.intensity = 0.75;
     hemi.groundColor = new Color3(0.25, 0.25, 0.3);
@@ -64,9 +73,30 @@ export class PlanViewer {
       m = new StandardMaterial(`m${hex}`, this.scene);
       m.diffuseColor = Color3.FromHexString(hex);
       m.specularColor = new Color3(0.08, 0.08, 0.08);
+      m.backFaceCulling = false;
+      m.twoSidedLighting = true;
       this.materials.set(hex, m);
     }
     return m;
+  }
+
+  /** One hidden template mesh per shape+orientation; items are clones of it. */
+  private template(key: string, data: RenderMesh): Mesh {
+    let t = this.templates.get(key);
+    if (!t) {
+      t = new Mesh(`tpl:${key}`, this.scene);
+      const vd = new VertexData();
+      vd.positions = data.positions;
+      vd.indices = data.indices;
+      const normals: number[] = [];
+      VertexData.ComputeNormals(data.positions, data.indices, normals);
+      vd.normals = normals;
+      vd.applyToMesh(t);
+      t.setEnabled(false);
+      t.isPickable = false;
+      this.templates.set(key, t);
+    }
+    return t;
   }
 
   clear() {
@@ -76,7 +106,12 @@ export class PlanViewer {
     this.staticMeshes = [];
   }
 
-  show(plan: ContainerPlan, colorOf: (p: Placement) => string, cog: [number, number, number] | null) {
+  show(
+    plan: ContainerPlan,
+    colorOf: (p: Placement) => string,
+    meshOf: (p: Placement) => { key: string; data: RenderMesh },
+    cog: [number, number, number] | null,
+  ) {
     this.clear();
     const [W, H, D] = plan.size;
     const sizeChanged = W !== this.size[0] || H !== this.size[1] || D !== this.size[2];
@@ -84,37 +119,20 @@ export class PlanViewer {
     this.drawContainer(W, H, D);
 
     for (const p of plan.placements) {
-      const mesh = this.buildMesh(p);
+      const { key, data } = meshOf(p);
+      const mesh = this.template(key, data).clone(p.instance_id);
+      mesh.setEnabled(true);
+      mesh.isPickable = true;
+      mesh.position = new Vector3(p.position[0] + p.size[0] / 2, p.position[1] + p.size[1] / 2, p.position[2] + p.size[2] / 2);
       mesh.material = this.material(colorOf(p));
-      mesh.enableEdgesRendering();
+      mesh.enableEdgesRendering(0.95, true); // match edges by position: meshes are unwelded
       mesh.edgesWidth = 3;
-      mesh.edgesColor = new Color4(0, 0, 0, 0.55);
+      mesh.edgesColor = new Color4(0, 0, 0, 0.5);
       this.meshes.push({ placement: p, mesh });
     }
     if (cog) this.drawCog(cog);
     if (sizeChanged) this.resetCamera();
-    this.applyHighlight();
-  }
-
-  private buildMesh(p: Placement): Mesh {
-    const [x, y, z] = p.position;
-    const [w, h, d] = p.size;
-    let mesh: Mesh;
-    if (p.shape.kind === "box") {
-      mesh = MeshBuilder.CreateBox(p.instance_id, { width: w, height: h, depth: d }, this.scene);
-    } else {
-      mesh = MeshBuilder.CreateCylinder(
-        p.instance_id,
-        { diameter: 2 * p.shape.radius, height: p.shape.length, tessellation: 32 },
-        this.scene,
-      );
-      // Local cylinder axis is Y; find which world axis it lies on.
-      const axis = AXIS_MAP[p.orientation].indexOf(1);
-      if (axis === 0) mesh.rotation.z = Math.PI / 2;
-      if (axis === 2) mesh.rotation.x = Math.PI / 2;
-    }
-    mesh.position = new Vector3(x + w / 2, y + h / 2, z + d / 2);
-    return mesh;
+    this.refresh();
   }
 
   private drawContainer(W: number, H: number, D: number) {
@@ -129,11 +147,7 @@ export class PlanViewer {
     frame.isPickable = false;
 
     // Door (z = depth) outlined in orange.
-    const door = MeshBuilder.CreateLines(
-      "door",
-      { points: [c(0, 0, D), c(W, 0, D), c(W, H, D), c(0, H, D), c(0, 0, D)] },
-      this.scene,
-    );
+    const door = MeshBuilder.CreateLines("door", { points: [c(0, 0, D), c(W, 0, D), c(W, H, D), c(0, H, D), c(0, 0, D)] }, this.scene);
     door.color = new Color3(1, 0.55, 0.15);
     door.isPickable = false;
 
@@ -164,21 +178,36 @@ export class PlanViewer {
     this.staticMeshes.push(ball, drop);
   }
 
-  /** Shows only placements with `seq < count` (step-by-step loading). */
+  /** Shows placements with `seq < count`; the one with `seq == count` is drawn as a preview. */
   setVisibleCount(count: number) {
-    for (const { placement, mesh } of this.meshes) mesh.setEnabled(placement.seq < count);
+    this.visibleCount = count;
+    this.refresh();
+  }
+
+  /** Items matching `f` stay solid, the rest are dimmed. `null` = all solid. */
+  setFocus(f: ((p: Placement) => boolean) | null) {
+    this.focus = f;
+    this.refresh();
   }
 
   highlight(instanceId: string | null) {
     this.highlighted = instanceId;
-    this.applyHighlight();
+    this.refresh();
   }
 
-  private applyHighlight() {
-    for (const { placement, mesh } of this.meshes) {
-      mesh.renderOverlay = placement.instance_id === this.highlighted;
-      mesh.overlayColor = new Color3(1, 1, 1);
-      mesh.overlayAlpha = 0.45;
+  private refresh() {
+    for (const { placement: p, mesh } of this.meshes) {
+      const placed = p.seq < this.visibleCount;
+      const next = p.seq === this.visibleCount;
+      mesh.setEnabled(placed || next);
+      const focused = !this.focus || this.focus(p);
+      mesh.visibility = next ? GHOST : focused ? 1 : DIMMED;
+      mesh.isPickable = placed && focused;
+      mesh.edgesColor = new Color4(0, 0, 0, focused || next ? 0.5 : 0.08);
+      const hl = p.instance_id === this.highlighted;
+      mesh.renderOverlay = hl || next;
+      mesh.overlayColor = next ? new Color3(1, 0.6, 0.1) : new Color3(1, 1, 1);
+      mesh.overlayAlpha = next ? 0.5 : 0.45;
     }
   }
 
@@ -186,13 +215,15 @@ export class PlanViewer {
     const [W, H, D] = this.size;
     // Look in through the door (z = depth), from above and slightly to the side.
     this.camera.target = new Vector3(W / 2, H / 3, D / 2);
-    this.camera.radius = Math.hypot(W, H, D) * 1.6;
+    // Portrait screens need more distance to fit the container's width.
+    const aspect = this.engine.getAspectRatio(this.camera) || 1;
+    this.camera.radius = Math.hypot(W, H, D) * 1.6 * Math.max(1, 1 / aspect);
     this.camera.alpha = Math.PI / 2 - 0.65;
     this.camera.beta = Math.PI / 3.4;
     this.camera.minZ = this.camera.radius / 1000;
     this.camera.maxZ = this.camera.radius * 20;
     this.camera.lowerRadiusLimit = this.camera.radius / 20;
     this.camera.upperRadiusLimit = this.camera.radius * 5;
-    this.camera.panningSensibility = 1000 / this.camera.radius; // right-drag pans ~1 px per mm-scale unit
+    this.camera.panningSensibility = 1000 / this.camera.radius; // right-drag pans
   }
 }

@@ -1,6 +1,67 @@
-# CHANGELOG 📋
+# Changelog
 
-All notable changes to the OmniPack-Hybrid project will be documented in this file.
+All notable changes to OmniPack are documented here. Version 0.2 restarts the
+numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
+earlier Python prototype (tag `v0-legacy`).
+
+## [0.2.0] - 2026-09-25
+
+The complete rewrite: one Rust engine for Windows and Android, with exact geometry and
+physics.
+
+### Added
+- **Engine (Rust):**
+  - Exact collision and contact geometry (parry3d).
+  - Placement by lowering items from above, so nothing can float.
+  - Stability at rest: centre of gravity over the support polygon with a margin, and
+    elastic load distribution followed down every stack.
+  - Load limits and fragile items, rolling and chocks, payload, axle and
+    centre-of-gravity limits.
+  - An independent validator that re-checks every plan, and every step of its loading
+    sequence.
+- **Shapes:** box, cylinder, sphere, cone, pyramid, n-sided prism and L-profile, with
+  volumes and centres of gravity from the true geometry.
+- **Transport physics (EN 12195-1 / CTU Code):**
+  - Road, rail (combined transport and shunting) and sea areas A/B/C.
+  - Sliding, tipping and dynamic stacking checks, with blocking chains and a secured
+    load end.
+  - A report of the securing force each item needs.
+  - When transport checks are on, placement prefers poses that won't tip and positions
+    that touch walls or neighbours.
+- **Loading strategies:**
+  - LIFO and FIFO unloading order.
+  - Load priority: volume, mass, base area, height, or as listed.
+  - Five fill patterns and a balance weight.
+- **App (Tauri 2) for Windows and Android:**
+  - Setup editors, samples, a catalog, JSON open/save, and plan and CSV export.
+  - Babylon.js 3D view drawing exactly the engine's geometry.
+  - Colour modes, including "securing needed".
+  - Legend isolation.
+  - Timeline with first / previous / play / next / last buttons, keyboard shortcuts,
+    and a preview of the next item.
+  - Phone layout with bottom tabs.
+- **CLI:** `omnipack pack | gen | thpack | bench`.
+- **Documentation:** user guide, physics model, conventions, building.
+
+### Changed
+- License: Apache-2.0.
+- Windows installer: 4.8 MB, down from 32 MB. Android APK: 27 MB, with no embedded
+  Python.
+
+### Removed
+- The Python/Numba engine, and the C++/Qt, plain-C and JNI ports. These are kept in
+  tag `v0-legacy`.
+
+### Fixed (compared with the prototype)
+- The axis mix-up (Z-up physics shown in a Y-up viewer) that let items float.
+- Stack loads were checked only one level down.
+- The stability and weight options did nothing.
+- The UI offered MCTS and genetic modes whose code no longer existed.
+- Units that did not fit disappeared without being reported.
+
+---
+
+## Legacy prototype (Python)
 
 ## [1.2.0] - 2026-03-07
 

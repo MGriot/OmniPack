@@ -1,8 +1,8 @@
 //! Support and stability rules shared by the placer and the validator.
 
-use crate::statics::{Support, SupportSet};
+use crate::statics::{load_at, resultant, Load, Support, SupportSet};
 use omnipack_geom::hull2d::polygon_area;
-use omnipack_geom::{convex_hull, floor_contacts, support_contacts, tol, Body, Pt2, Shape};
+use omnipack_geom::{convex_hull, floor_contacts, support_contacts, tol, Body, Pt2};
 
 /// Supports of one body plus the true contact area of its flat bottom.
 pub struct SupportInfo {
@@ -36,37 +36,49 @@ pub fn compute_supports<'a>(body: &Body, others: impl IntoIterator<Item = (usize
 
 /// Area of a flat bottom face, if the body has one.
 pub fn flat_bottom_area(body: &Body) -> Option<f64> {
-    match body.shape.shape {
-        Shape::Box { .. } => Some(body.shape.extents[0] * body.shape.extents[2]),
-        Shape::Cylinder { radius, .. } if body.shape.orientation.axis_map()[1] == 1 => {
-            Some(std::f64::consts::PI * radius * radius)
+    body.shape.bottom_area()
+}
+
+/// How a round item resting on a line or a point is kept from rolling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Roll {
+    /// Not a round item on a line/point support: the normal tipping rules apply.
+    NotApplicable,
+    /// Wedged in by walls or neighbours on every side it could roll to.
+    Blocked,
+    /// Needs wooden wedges (chocks) to be applied when loading.
+    NeedsChocks,
+    /// Free to roll: not allowed.
+    Free,
+}
+
+impl Roll {
+    pub fn is_held(self) -> bool {
+        matches!(self, Roll::Blocked | Roll::NeedsChocks)
+    }
+}
+
+/// Horizontal axes (0 = x, 2 = z) along which a body on this support could roll.
+fn roll_axes(set: &SupportSet) -> Vec<usize> {
+    match set.hull.len() {
+        2 => {
+            let (a, b) = (set.hull[0], set.hull[1]);
+            // Rolls across the contact line.
+            if (b.x - a.x).abs() >= (b.z - a.z).abs() {
+                vec![2]
+            } else {
+                vec![0]
+            }
         }
-        Shape::Cylinder { .. } => None,
+        _ => vec![0, 2],
     }
 }
 
-/// A cylinder lying on its side.
-pub fn is_lying_cylinder(body: &Body) -> bool {
-    matches!(body.shape.shape, Shape::Cylinder { .. }) && body.shape.orientation.axis_map()[1] != 1
-}
-
-/// Horizontal world axis (0 = x, 2 = z) along which a lying cylinder would roll.
-fn roll_axis(body: &Body) -> usize {
-    if body.shape.orientation.axis_map()[0] == 1 {
-        2 // cylinder axis along x, rolls along z
-    } else {
-        0
-    }
-}
-
-/// True if a lying cylinder is chocked on both sides of its rolling direction
-/// by a wall or by a touching neighbour.
-pub fn roll_blocked<'a>(body: &Body, others: impl IntoIterator<Item = Body<'a>>, container: [f64; 3]) -> bool {
-    let k = roll_axis(body);
+fn blocked_along<'a>(body: &Body, k: usize, others: &[Body<'a>], container: [f64; 3]) -> bool {
     let (mn, mx) = (body.min, body.max());
     let mut neg = mn[k] <= tol::CONTACT;
     let mut pos = mx[k] >= container[k] - tol::CONTACT;
-    let other_axes = [0usize, 1, 2].into_iter().filter(|&a| a != k).collect::<Vec<_>>();
+    let other_axes: Vec<usize> = [0usize, 1, 2].into_iter().filter(|&a| a != k).collect();
     for o in others {
         let (omn, omx) = (o.min, o.max());
         let side_by_side = other_axes.iter().all(|&a| omn[a] < mx[a] - tol::CONTACT && mn[a] < omx[a] - tol::CONTACT);
@@ -83,24 +95,63 @@ pub fn roll_blocked<'a>(body: &Body, others: impl IntoIterator<Item = Body<'a>>,
     neg && pos
 }
 
-/// Stability margin (mm) of a load resultant at `p` on `set`. A chocked lying
-/// cylinder on a line support is judged along its axis only.
-pub fn stability_margin(set: &SupportSet, p: Pt2, chocked_line: bool) -> f64 {
-    if !(chocked_line && set.hull.len() == 2) {
+/// Rolling state of `body` on `set`, given its neighbours and the container.
+pub fn roll_state<'a>(body: &Body, set: &SupportSet, others: impl IntoIterator<Item = Body<'a>>, container: [f64; 3], use_chocks: bool) -> Roll {
+    if !body.shape.shape.can_roll() || set.is_empty() || !set.is_degenerate() {
+        return Roll::NotApplicable;
+    }
+    let others: Vec<Body> = others.into_iter().collect();
+    if roll_axes(set).into_iter().all(|k| blocked_along(body, k, &others, container)) {
+        Roll::Blocked
+    } else if use_chocks {
+        Roll::NeedsChocks
+    } else {
+        Roll::Free
+    }
+}
+
+/// Stability margin (mm) of a load resultant at `p` on `set`. A held round
+/// item on a line is judged along the line only; on a point it cannot tip.
+pub fn stability_margin(set: &SupportSet, p: Pt2, held: bool) -> f64 {
+    if !held || !set.is_degenerate() {
         return set.margin(p);
+    }
+    if set.hull.len() < 2 {
+        return f64::INFINITY;
     }
     let (a, b) = (set.hull[0], set.hull[1]);
     let (dx, dz) = (b.x - a.x, b.z - a.z);
     let len = (dx * dx + dz * dz).sqrt();
     if len <= 0.0 {
-        return set.margin(p);
+        return f64::INFINITY;
     }
     let t = ((p.x - a.x) * dx + (p.z - a.z) * dz) / len;
-    let perp = ((p.x - a.x) * dz - (p.z - a.z) * dx).abs() / len;
-    if perp > tol::CONTACT {
-        return -perp;
-    }
     t.min(len - t)
+}
+
+/// Splits `load` over the supports. For a held round item the wedges take the
+/// horizontal moment, so the load is applied at the nearest support point.
+pub fn distribute(set: &SupportSet, load: Load, held: bool) -> Option<Vec<(Support, Load)>> {
+    if held && set.is_degenerate() {
+        let r = resultant(load)?;
+        let p = nearest_on_hull(&set.hull, r);
+        return set.distribute(load_at(load[0], p));
+    }
+    set.distribute(load)
+}
+
+fn nearest_on_hull(hull: &[Pt2], p: Pt2) -> Pt2 {
+    match hull.len() {
+        0 => p,
+        1 => hull[0],
+        _ => {
+            let (a, b) = (hull[0], hull[1]);
+            let (dx, dz) = (b.x - a.x, b.z - a.z);
+            let len2 = dx * dx + dz * dz;
+            let t = if len2 > 0.0 { (((p.x - a.x) * dx + (p.z - a.z) * dz) / len2).clamp(0.0, 1.0) } else { 0.0 };
+            Pt2::new(a.x + t * dx, a.z + t * dz)
+        }
+    }
 }
 
 /// Margin an item needs: a fraction of its smaller half-footprint.

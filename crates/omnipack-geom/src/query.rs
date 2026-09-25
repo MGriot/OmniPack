@@ -1,14 +1,12 @@
 //! Exact geometric queries between placed bodies.
 
-use crate::hull2d::{clip_convex, disk, polygon_area, rect, Pt2};
-use crate::shape::{OrientedShape, Shape};
+use crate::hull2d::{clip_convex, polygon_area, Pt2};
+use crate::shape::{OrientedShape, Shape as ItemShape};
+use parry3d_f64::math::Isometry;
+use parry3d_f64::shape::{Cuboid, Shape};
 use crate::tol;
 use parry3d_f64::math::Vector;
 use parry3d_f64::query::{self, ContactManifold, DefaultQueryDispatcher, PersistentQueryDispatcher, ShapeCastOptions};
-
-/// Segments used to approximate a circular face. Inscribed, so contact areas
-/// are slightly under-estimated (the conservative direction for stability).
-const DISK_SEGMENTS: usize = 32;
 
 /// An oriented shape placed with its AABB minimum corner at `min`.
 #[derive(Debug, Clone, Copy)]
@@ -33,41 +31,17 @@ impl<'a> Body<'a> {
     }
 
     fn is_box(&self) -> bool {
-        matches!(self.shape.shape, Shape::Box { .. })
+        matches!(self.shape.shape, ItemShape::Box { .. })
     }
 
-    fn vertical_axis_is_local_y(&self) -> bool {
-        self.shape.orientation.axis_map()[1] == 1
-    }
-
-    /// The flat horizontal face at the bottom or top, if the body has one.
+    /// The flat horizontal face at the bottom or top, if the body has one,
+    /// as its height and a convex world-space XZ polygon.
     fn flat_face(&self, top: bool) -> Option<(f64, Vec<Pt2>)> {
-        let (mn, mx) = (self.min, self.max());
-        let y = if top { mx[1] } else { mn[1] };
-        match self.shape.shape {
-            Shape::Box { .. } => Some((y, rect(mn[0], mn[2], mx[0], mx[2]))),
-            Shape::Cylinder { radius, .. } if self.vertical_axis_is_local_y() => {
-                let (cx, cz) = ((mn[0] + mx[0]) / 2.0, (mn[2] + mx[2]) / 2.0);
-                Some((y, disk(cx, cz, radius, DISK_SEGMENTS)))
-            }
-            Shape::Cylinder { .. } => None,
-        }
-    }
-
-    /// Footprint polygon on the floor when resting at the body's lowest point.
-    /// For a lying cylinder this is the contact line (2 points).
-    pub fn bottom_contact_region(&self) -> Vec<Pt2> {
-        if let Some((_, poly)) = self.flat_face(false) {
-            return poly;
-        }
+        let face = if top { self.shape.top_face.as_ref()? } else { self.shape.bottom_face.as_ref()? };
         let (mn, mx) = (self.min, self.max());
         let (cx, cz) = ((mn[0] + mx[0]) / 2.0, (mn[2] + mx[2]) / 2.0);
-        // Lying cylinder: axis along whichever horizontal extent is the length.
-        if self.shape.orientation.axis_map()[0] == 1 {
-            vec![Pt2::new(mn[0], cz), Pt2::new(mx[0], cz)]
-        } else {
-            vec![Pt2::new(cx, mn[2]), Pt2::new(cx, mx[2])]
-        }
+        let y = if top { mx[1] } else { mn[1] };
+        Some((y, face.iter().map(|p| Pt2::new(cx + p.x, cz + p.z)).collect()))
     }
 }
 
@@ -90,17 +64,21 @@ pub fn overlaps(a: &Body, b: &Body) -> bool {
     if a.is_box() && b.is_box() {
         return true; // axis-aligned boxes are their own AABB
     }
-    match query::contact(
-        &a.shape.isometry_at(a.min),
-        a.shape.parry().as_ref(),
-        &b.shape.isometry_at(b.min),
-        b.shape.parry().as_ref(),
-        0.0,
-    ) {
-        Ok(Some(c)) => c.dist < -tol::PENETRATION,
-        Ok(None) => false,
-        Err(_) => true, // unsupported pair: be conservative
+    let (pa, pb) = (a.shape.isometry_at(a.min), b.shape.isometry_at(b.min));
+    let (ga, gb) = (a.shape.parry().as_ref(), b.shape.parry().as_ref());
+    // GJK can disagree with itself depending on argument order: ask both ways.
+    let hit = |r: Result<bool, _>| r.unwrap_or(true);
+    if !hit(query::intersection_test(&pa, ga, &pb, gb)) && !hit(query::intersection_test(&pb, gb, &pa, ga)) {
+        return false;
     }
+    // EPA depth estimates can be asymmetric for some pairs: take the deeper one.
+    let depth = |r: Result<Option<query::Contact>, _>| match r {
+        Ok(Some(c)) => -c.dist,
+        Ok(None) => 0.0,
+        Err(_) => f64::INFINITY,
+    };
+    let d = depth(query::contact(&pa, ga, &pb, gb, 0.0)).max(depth(query::contact(&pb, gb, &pa, ga, 0.0)));
+    d > tol::PENETRATION
 }
 
 /// Lowest `y` at which `moving` (min corner at `x`, `z`) rests when lowered from
@@ -116,7 +94,7 @@ pub fn drop_height<'a>(moving: &OrientedShape, x: f64, z: f64, obstacles: impl I
     const CLEARANCE: f64 = 1.0;
     let y_start = below.iter().map(|o| o.max()[1]).fold(0.0, f64::max) + CLEARANCE;
     let mut rest = 0.0f64;
-    let moving_is_box = matches!(moving.shape, Shape::Box { .. });
+    let moving_is_box = matches!(moving.shape, ItemShape::Box { .. });
     let start_iso = moving.isometry_at([x, y_start, z]);
     for o in &below {
         let top = o.max()[1];
@@ -148,10 +126,23 @@ pub fn drop_height<'a>(moving: &OrientedShape, x: f64, z: f64, obstacles: impl I
             Err(_) => rest = rest.max(top),
         }
     }
-    // Safety net against numerical misses: never return an interpenetrating pose.
-    let at_rest = Body::new(moving, [x, rest, z]);
-    if below.iter().any(|o| overlaps(&at_rest, o)) {
-        return y_start - CLEARANCE;
+    // Shape casts can miss for some pairs; never return an interpenetrating
+    // pose. Bisect for the lowest clear height instead.
+    let clear = |y: f64| {
+        let b = Body::new(moving, [x, y, z]);
+        !below.iter().any(|o| overlaps(&b, o))
+    };
+    if !clear(rest) {
+        let (mut lo, mut hi) = (rest, y_start);
+        for _ in 0..60 {
+            let mid = (lo + hi) / 2.0;
+            if clear(mid) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        return hi;
     }
     rest
 }
@@ -182,33 +173,33 @@ pub fn support_contacts(upper: &Body, lower: &Body) -> Vec<SupportContact> {
             return Vec::new();
         }
     }
-    // Curved contacts: parry contact manifolds.
-    let pos1 = upper.shape.isometry_at(upper.min);
-    let pos2 = lower.shape.isometry_at(lower.min);
-    let pos12 = pos1.inv_mul(&pos2);
+    // Curved or composite contacts: parry contact manifolds.
+    manifold_support_points(
+        &upper.shape.isometry_at(upper.min),
+        upper.shape.parry().as_ref(),
+        &lower.shape.isometry_at(lower.min),
+        lower.shape.parry().as_ref(),
+    )
+}
+
+/// Contact points where shape 1 pushes down on shape 2.
+fn manifold_support_points(pos1: &Isometry<f64>, g1: &dyn Shape, pos2: &Isometry<f64>, g2: &dyn Shape) -> Vec<SupportContact> {
+    let pos12 = pos1.inv_mul(pos2);
     let mut manifolds: Vec<ContactManifold<(), ()>> = Vec::new();
-    if DefaultQueryDispatcher
-        .contact_manifolds(
-            &pos12,
-            upper.shape.parry().as_ref(),
-            lower.shape.parry().as_ref(),
-            tol::CONTACT,
-            &mut manifolds,
-            &mut None,
-        )
-        .is_err()
-    {
+    if DefaultQueryDispatcher.contact_manifolds(&pos12, g1, g2, tol::CONTACT, &mut manifolds, &mut None).is_err() {
         return Vec::new();
     }
     let mut out = Vec::new();
     for m in &manifolds {
-        let n1 = pos1.rotation * m.local_n1;
+        // Normals and points of sub-shapes (compounds) are in the sub-shape frame.
+        let sub1 = m.subshape_pos1.map_or(*pos1, |p| pos1 * p);
+        let n1 = sub1.rotation * m.local_n1;
         if n1.y > -tol::MIN_SUPPORT_NORMAL_Y {
             continue; // not pushing downwards
         }
         for c in &m.points {
             if c.dist <= tol::CONTACT {
-                let p = pos1 * c.local_p1;
+                let p = sub1 * c.local_p1;
                 out.push(SupportContact { x: p.x, y: p.y, z: p.z });
             }
         }
@@ -221,9 +212,17 @@ pub fn floor_contacts(body: &Body) -> Vec<SupportContact> {
     if body.min[1] > tol::CONTACT {
         return Vec::new();
     }
-    body.bottom_contact_region()
+    if let Some((_, poly)) = body.flat_face(false) {
+        return poly.into_iter().map(|p| SupportContact { x: p.x, y: 0.0, z: p.z }).collect();
+    }
+    // Curved or composite bottoms: contact manifold against a floor slab.
+    const SLAB: f64 = 1e6;
+    let floor = Cuboid::new(Vector::new(SLAB, 1.0, SLAB));
+    let c = body.max();
+    let floor_iso = Isometry::translation((body.min[0] + c[0]) / 2.0, -1.0, (body.min[2] + c[2]) / 2.0);
+    manifold_support_points(&body.shape.isometry_at(body.min), body.shape.parry().as_ref(), &floor_iso, &floor)
         .into_iter()
-        .map(|p| SupportContact { x: p.x, y: 0.0, z: p.z })
+        .map(|p| SupportContact { y: 0.0, ..p })
         .collect()
 }
 

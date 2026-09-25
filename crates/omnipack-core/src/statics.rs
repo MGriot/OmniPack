@@ -11,7 +11,7 @@
 //! Loads are in kg-force; positions in mm on the XZ plane.
 
 use omnipack_geom::na::{DMatrix, DVector};
-use omnipack_geom::{convex_hull, signed_distance_to_polygon, Pt2};
+use omnipack_geom::{convex_hull, signed_distance_to_polygon, tol, Pt2};
 
 /// What carries a contact point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,7 +56,7 @@ pub struct SupportSet {
 
 impl SupportSet {
     pub fn new(points: Vec<Pt2>, owners: Vec<Support>) -> Self {
-        let hull = convex_hull(&points);
+        let hull = collapse_thin(convex_hull(&points));
         SupportSet { points, owners, hull }
     }
 
@@ -91,6 +91,41 @@ impl SupportSet {
         }
         Some(out)
     }
+}
+
+/// Replaces a hull thinner than [`tol::DEGENERATE_WIDTH`] by its centre line
+/// (or a single point), so near-line contacts are treated as lines.
+fn collapse_thin(hull: Vec<Pt2>) -> Vec<Pt2> {
+    if hull.len() < 3 {
+        return hull;
+    }
+    let d = |a: Pt2, b: Pt2| ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    let (mut a, mut b, mut best) = (hull[0], hull[1], -1.0);
+    for (i, &p) in hull.iter().enumerate() {
+        for &q in &hull[i + 1..] {
+            if d(p, q) > best {
+                (a, b, best) = (p, q, d(p, q));
+            }
+        }
+    }
+    let centroid = Pt2::new(hull.iter().map(|p| p.x).sum::<f64>() / hull.len() as f64, hull.iter().map(|p| p.z).sum::<f64>() / hull.len() as f64);
+    if best < tol::DEGENERATE_WIDTH {
+        return vec![centroid];
+    }
+    let (ux, uz) = ((b.x - a.x) / best, (b.z - a.z) / best);
+    let offsets: Vec<f64> = hull.iter().map(|p| (p.x - a.x) * -uz + (p.z - a.z) * ux).collect();
+    let (lo, hi) = offsets.iter().fold((f64::MAX, f64::MIN), |(l, h), &o| (l.min(o), h.max(o)));
+    if hi - lo >= tol::DEGENERATE_WIDTH {
+        return hull;
+    }
+    // Centre line: shift a-b to the middle of the band, keep its full length.
+    let mid = (lo + hi) / 2.0;
+    let (ts, te) = hull.iter().fold((f64::MAX, f64::MIN), |(s, e), p| {
+        let t = (p.x - a.x) * ux + (p.z - a.z) * uz;
+        (s.min(t), e.max(t))
+    });
+    let at = |t: f64| Pt2::new(a.x + ux * t - uz * mid, a.z + uz * t + ux * mid);
+    vec![at(ts), at(te)]
 }
 
 /// Non-negative point forces summing to `total` whose moment about `at` is

@@ -8,10 +8,10 @@
 //! propagating the new weight down to the floor.
 
 use crate::grid::FloorGrid;
-use crate::model::{ContainerSpec, PackOptions, Zone};
-use crate::scene::{self, compute_supports};
+use crate::model::{ContainerSpec, PackOptions, StopOrder, Zone};
+use crate::scene::{self, compute_supports, Roll};
 use crate::statics::{add, effective_mass, load_at, resultant, sub, Load, Support, SupportSet};
-use omnipack_geom::{drop_height, tol, Body, OrientedShape, Pt2};
+use omnipack_geom::{drop_height, ray_exit_distance, tol, Body, OrientedShape, Pt2};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
@@ -28,6 +28,40 @@ pub struct Instance {
     pub stop: u32,
     pub zone: Zone,
     pub volume: f64,
+    /// Per orientation: how far (in g) the worst selected transport case
+    /// exceeds what the item resists against tipping on its own base.
+    pub tip_deficit: Vec<f64>,
+}
+
+/// Score weight per g of tipping deficit: strong enough to lay slender items
+/// down when the physics options ask for transport safety.
+const TIP_WEIGHT: f64 = 0.3;
+/// Score bonus for being blocked on all four sides (walls or neighbours).
+const CONTACT_BONUS: f64 = 4e-3;
+
+/// Tipping deficit of `shape` standing alone on its bottom face under the
+/// selected transport cases, in g (0 = resists every case by itself).
+pub fn tip_deficit(shape: &OrientedShape, physics: &crate::model::PhysicsOptions) -> f64 {
+    if !physics.check_tipping || physics.transport.is_empty() {
+        return 0.0;
+    }
+    let Some(face) = shape.bottom_face.as_ref() else { return 0.0 };
+    let e = shape.extents;
+    let c = shape.com_from_min;
+    let com = Pt2::new(c[0] - e[0] / 2.0, c[2] - e[2] / 2.0);
+    let lever = c[1];
+    if lever <= 0.0 {
+        return 0.0;
+    }
+    let mut worst: f64 = 0.0;
+    for case in &physics.transport {
+        for (dir, d) in crate::validate::DIRS {
+            let a = crate::validate::accel(case, dir);
+            let arm = ray_exit_distance(face, com, d);
+            worst = worst.max((a * lever - case.vertical_min * arm) / lever);
+        }
+    }
+    worst.max(0.0)
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +70,7 @@ pub struct PlacedBody {
     pub orient: usize,
     pub min: [f64; 3],
     pub supports: SupportSet,
-    pub chocked: bool,
+    pub roll: Roll,
     pub required_margin: f64,
     /// Load received from items above.
     pub incoming: Load,
@@ -144,41 +178,110 @@ impl<'a> ContainerState<'a> {
         out
     }
 
-    fn score(&self, inst: &Instance, shape: &OrientedShape, x: f64, y: f64, z: f64) -> f64 {
+    /// Normalised distance from where this unit should start filling along Z:
+    /// the back wall, or the door for front-zone units and FIFO loading.
+    fn depth_term(&self, inst: &Instance, z: f64, d: f64) -> f64 {
         let c = self.spec;
-        let [w, _, d] = shape.extents;
-        let nz = match inst.zone {
-            Zone::Front => (c.depth - (z + d)) / c.depth,
-            _ => z / c.depth,
+        let from_door = match inst.zone {
+            Zone::Front => true,
+            Zone::Back => false,
+            Zone::Any => self.opts.stop_order == StopOrder::Fifo,
         };
+        if from_door {
+            (c.depth - (z + d)) / c.depth
+        } else {
+            z / c.depth
+        }
+    }
+
+    fn score(&mut self, inst_idx: usize, orient: usize, x: f64, y: f64, z: f64) -> f64 {
+        let inst = &self.instances[inst_idx];
+        let c = self.spec;
+        let shape = &inst.shapes[orient];
+        let [w, _, d] = shape.extents;
+        let nz = self.depth_term(inst, z, d);
         let [wx, wy, wz] = self.opts.bias.weights();
-        let mut s = wx * x / c.width + wy * y / c.height + wz * nz;
+        let mut s = wx * x / c.width + wy * y / c.height + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient];
         if self.opts.balance_weight > 0.0 {
             let cx = x + shape.com_from_min[0];
             let m = self.mass + inst.mass;
             let com_x = if m > 0.0 { (self.moment_x + inst.mass * cx) / m } else { x + w / 2.0 };
             s += self.opts.balance_weight * 1e-2 * (com_x - c.width / 2.0).abs() / c.width;
         }
+        let cw = self.contact_weight();
+        if cw > 0.0 {
+            s -= cw * self.blocked_sides(shape, [x, y, z]) as f64 / 4.0;
+        }
         s
     }
 
     /// Lower bound of `score` for any `y ≥ 0`.
-    fn score_lower_bound(&self, inst: &Instance, shape: &OrientedShape, x: f64, z: f64) -> f64 {
+    fn score_lower_bound(&self, inst: &Instance, orient: usize, x: f64, z: f64) -> f64 {
         let c = self.spec;
-        let d = shape.extents[2];
-        let nz = match inst.zone {
-            Zone::Front => (c.depth - (z + d)) / c.depth,
-            _ => z / c.depth,
-        };
+        let nz = self.depth_term(inst, z, inst.shapes[orient].extents[2]);
         let [wx, _, wz] = self.opts.bias.weights();
-        wx * x / c.width + wz * nz
+        wx * x / c.width + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] - self.contact_weight()
     }
 
-    fn drop_y(&mut self, shape: &OrientedShape, x: f64, z: f64) -> f64 {
+    /// Resting height, and whether the item would then sit on the top of a
+    /// zero-capacity (fragile) item: a cheap early rejection.
+    fn drop_y(&mut self, shape: &OrientedShape, x: f64, z: f64) -> (f64, bool) {
         let [w, _, d] = shape.extents;
         let ids = self.neighbours(x, z, x + w, z + d);
-        let bodies: Vec<Body> = ids.into_iter().map(|i| self.body(i)).collect();
-        drop_height(shape, x, z, bodies)
+        let bodies: Vec<Body> = ids.iter().map(|&i| self.body(i)).collect();
+        let y = drop_height(shape, x, z, bodies.iter().copied());
+        let on_fragile = y > tol::CONTACT
+            && ids.iter().zip(&bodies).any(|(&i, b)| {
+                let (mn, mx) = (b.min, b.max());
+                self.instances[self.placed[i].inst].capacity <= 0.0
+                    && (mx[1] - y).abs() <= tol::CONTACT
+                    && mn[0] < x + w - tol::CONTACT
+                    && x < mx[0] - tol::CONTACT
+                    && mn[2] < z + d - tol::CONTACT
+                    && z < mx[2] - tol::CONTACT
+            });
+        (y, on_fragile)
+    }
+
+    /// Number of sides (±x, ±z) touching a wall or a neighbour: blocked sides
+    /// keep cargo from sliding in transport.
+    fn blocked_sides(&mut self, shape: &OrientedShape, min: [f64; 3]) -> usize {
+        let e = shape.extents;
+        let max = [min[0] + e[0], min[1] + e[1], min[2] + e[2]];
+        let size = [self.spec.width, self.spec.height, self.spec.depth];
+        let ids = self.neighbours(min[0] - tol::CONTACT, min[2] - tol::CONTACT, max[0] + tol::CONTACT, max[2] + tol::CONTACT);
+        let mut sides = [
+            min[0] <= tol::CONTACT,
+            max[0] >= size[0] - tol::CONTACT,
+            min[2] <= tol::CONTACT,
+            max[2] >= size[2] - tol::CONTACT,
+        ];
+        for i in ids {
+            let b = self.body(i);
+            let (omn, omx) = (b.min, b.max());
+            let over = |k: usize| omn[k] < max[k] - tol::CONTACT && min[k] < omx[k] - tol::CONTACT;
+            if !over(1) {
+                continue;
+            }
+            if over(2) {
+                sides[0] |= (omx[0] - min[0]).abs() <= tol::CONTACT;
+                sides[1] |= (omn[0] - max[0]).abs() <= tol::CONTACT;
+            }
+            if over(0) {
+                sides[2] |= (omx[2] - min[2]).abs() <= tol::CONTACT;
+                sides[3] |= (omn[2] - max[2]).abs() <= tol::CONTACT;
+            }
+        }
+        sides.iter().filter(|s| **s).count()
+    }
+
+    fn contact_weight(&self) -> f64 {
+        let ph = &self.opts.physics;
+        if ph.check_sliding && !ph.transport.is_empty() {
+            CONTACT_BONUS
+        } else {
+            0.0
+        }
     }
 
     /// Tries to place instance `inst`. Returns `true` on success.
@@ -206,7 +309,7 @@ impl<'a> ContainerState<'a> {
                     if !seen.insert((oi, key(x), key(z))) {
                         continue;
                     }
-                    let lb = self.score_lower_bound(inst, shape, x, z);
+                    let lb = self.score_lower_bound(inst, oi, x, z);
                     heap.push(Candidate { key: lb, orient: oi, x, z, y: None });
                 }
             }
@@ -216,14 +319,14 @@ impl<'a> ContainerState<'a> {
             let shape = &self.instances[inst_idx].shapes[c.orient];
             match c.y {
                 None => {
-                    let y = self.drop_y(shape, c.x, c.z);
-                    if y + shape.extents[1] > ch + tol::BOUNDS {
+                    let (y, on_fragile) = self.drop_y(shape, c.x, c.z);
+                    if on_fragile || y + shape.extents[1] > ch + tol::BOUNDS {
                         continue;
                     }
                     if inst.floor_only && y > tol::CONTACT {
                         continue;
                     }
-                    let s = self.score(inst, shape, c.x, y, c.z);
+                    let s = self.score(inst_idx, c.orient, c.x, y, c.z);
                     heap.push(Candidate { key: s, y: Some(y), ..c });
                 }
                 Some(y) => {
@@ -266,31 +369,40 @@ impl<'a> ContainerState<'a> {
                 return None;
             }
         }
-        let chocked = scene::is_lying_cylinder(&body)
-            && info.set.is_degenerate()
-            && scene::roll_blocked(&body, ids.iter().map(|&j| self.body(j)), [self.spec.width, self.spec.height, self.spec.depth]);
+        let roll = scene::roll_state(
+            &body,
+            &info.set,
+            ids.iter().map(|&j| self.body(j)),
+            [self.spec.width, self.spec.height, self.spec.depth],
+            self.opts.physics.use_chocks,
+        );
+        if roll == Roll::Free {
+            return None;
+        }
         let required = scene::required_margin(&body, self.opts.stability_margin);
         let com = body.com();
         let own = load_at(effective_mass(inst.mass), Pt2::new(com[0], com[2]));
-        let margin = scene::stability_margin(&info.set, Pt2::new(com[0], com[2]), chocked);
+        let margin = scene::stability_margin(&info.set, Pt2::new(com[0], com[2]), roll.is_held());
         if margin < required - 1e-9 {
             return None;
         }
-        let outgoing = info.set.distribute(own)?;
+        let outgoing = scene::distribute(&info.set, own, roll.is_held())?;
 
         // Propagate the new weight downwards, top to bottom.
         let mut delta: HashMap<usize, Load> = HashMap::new();
-        let mut queue: BinaryHeap<(OrdF64, usize)> = BinaryHeap::new();
+        // Supports only point to earlier-loaded items, so processing in reverse
+        // loading order visits every item after all the items resting on it.
+        let mut queue: BinaryHeap<usize> = BinaryHeap::new();
         for (s, l) in &outgoing {
             if let Support::Item(j) = *s {
                 let e = delta.entry(j).or_insert([0.0; 3]);
                 *e = add(*e, *l);
-                queue.push((OrdF64(self.placed[j].min[1]), j));
+                queue.push(j);
             }
         }
         let mut updates: Vec<Update> = Vec::new();
         let mut done: HashSet<usize> = HashSet::new();
-        while let Some((_, j)) = queue.pop() {
+        while let Some(j) = queue.pop() {
             if !done.insert(j) {
                 continue;
             }
@@ -304,17 +416,17 @@ impl<'a> ContainerState<'a> {
             let cj = bj.com();
             let total = add(load_at(effective_mass(ij.mass), Pt2::new(cj[0], cj[2])), incoming);
             let r = resultant(total)?;
-            let mj = scene::stability_margin(&pj.supports, r, pj.chocked);
+            let mj = scene::stability_margin(&pj.supports, r, pj.roll.is_held());
             if mj < pj.required_margin - 1e-9 {
                 return None;
             }
-            let new_out = pj.supports.distribute(total)?;
+            let new_out = scene::distribute(&pj.supports, total, pj.roll.is_held())?;
             for (s, l) in &new_out {
                 if let Support::Item(k) = *s {
                     let old = pj.outgoing.iter().find(|(o, _)| o == s).map(|x| x.1).unwrap_or([0.0; 3]);
                     let e = delta.entry(k).or_insert([0.0; 3]);
                     *e = add(*e, sub(*l, old));
-                    queue.push((OrdF64(self.placed[k].min[1]), k));
+                    queue.push(k);
                 }
             }
             for (s, old) in &pj.outgoing {
@@ -322,7 +434,7 @@ impl<'a> ContainerState<'a> {
                     if !new_out.iter().any(|(o, _)| o == s) {
                         let e = delta.entry(k).or_insert([0.0; 3]);
                         *e = sub(*e, *old);
-                        queue.push((OrdF64(self.placed[k].min[1]), k));
+                        queue.push(k);
                     }
                 }
             }
@@ -334,7 +446,7 @@ impl<'a> ContainerState<'a> {
                 orient,
                 min,
                 supports: info.set,
-                chocked,
+                roll,
                 required_margin: required,
                 incoming: [0.0; 3],
                 outgoing,
@@ -382,22 +494,4 @@ struct Update {
 struct Commit {
     body: PlacedBody,
     updates: Vec<Update>,
-}
-
-struct OrdF64(f64);
-impl PartialEq for OrdF64 {
-    fn eq(&self, o: &Self) -> bool {
-        self.cmp(o) == Ordering::Equal
-    }
-}
-impl Eq for OrdF64 {}
-impl PartialOrd for OrdF64 {
-    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for OrdF64 {
-    fn cmp(&self, o: &Self) -> Ordering {
-        self.0.total_cmp(&o.0)
-    }
 }

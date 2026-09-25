@@ -5,7 +5,7 @@ members = ["crates/omnipack-geom", "crates/omnipack-core", "crates/omnipack-cli"
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 rust-version = "1.82"
 
 [workspace.dependencies]

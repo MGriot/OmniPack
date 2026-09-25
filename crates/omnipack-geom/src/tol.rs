@@ -11,3 +11,7 @@ pub const BOUNDS: f64 = 1e-6;
 
 /// A contact normal must have at least this downward component to carry weight.
 pub const MIN_SUPPORT_NORMAL_Y: f64 = 0.05;
+
+/// A support polygon thinner than this is really a line (or a point): contact
+/// manifolds on curved surfaces scatter slightly around the true contact line.
+pub const DEGENERATE_WIDTH: f64 = 1.0;

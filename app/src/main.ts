@@ -1,14 +1,27 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
   defaultOptions,
+  defaultPhysics,
+  defaultShape,
   newItem,
+  ROAD,
+  SHAPE_KINDS,
   type ContainerPlan,
+  type Direction,
   type FillBias,
   type ItemSpec,
+  type LoadPriority,
   type PackRequest,
   type PackResult,
   type Placement,
+  type RenderMesh,
+  type Shape,
+  type ShapeKind,
+  type StopOrder,
+  type TransportCase,
+  type TransportIssue,
   type Zone,
 } from "./types";
 import { PlanViewer } from "./viewer";
@@ -21,6 +34,10 @@ let stale = false;
 let current = 0;
 let selected: Placement | null = null;
 let playing: number | null = null;
+let presets: TransportCase[] = [ROAD];
+/** Legend keys (item ids, stops, …) the user isolated; empty = show all. */
+const focusKeys = new Set<string>();
+const meshCache = new Map<string, RenderMesh>();
 
 function emptyRequest(): PackRequest {
   return {
@@ -65,11 +82,12 @@ function changed() {
 }
 
 /** Numeric input bound to a getter/setter. `nullable`: empty = null. */
-function num(label: string, get: () => number | null, set: (v: number | null) => void, opts: { nullable?: boolean; min?: number; step?: string; placeholder?: string } = {}) {
+function num(label: string, get: () => number | null, set: (v: number | null) => void, opts: { nullable?: boolean; min?: number; max?: number; step?: string; placeholder?: string } = {}) {
   const input = h("input", {
     type: "number",
     step: opts.step ?? "any",
     min: opts.min,
+    max: opts.max,
     placeholder: opts.placeholder ?? "",
     value: get() ?? "",
   }) as HTMLInputElement;
@@ -79,7 +97,7 @@ function num(label: string, get: () => number | null, set: (v: number | null) =>
     else {
       const v = Number(raw);
       if (Number.isFinite(v)) set(v);
-      else input.value = String(get() ?? "");
+      input.value = String(get() ?? "");
     }
     changed();
   });
@@ -95,14 +113,14 @@ function text(label: string, get: () => string, set: (v: string) => void) {
   return h("label", { class: "field" }, h("span", {}, label), input);
 }
 
-function check(label: string, get: () => boolean, set: (v: boolean) => void) {
+function check(label: string, get: () => boolean, set: (v: boolean) => void, title?: string) {
   const input = h("input", { type: "checkbox" }) as HTMLInputElement;
   input.checked = get();
   input.addEventListener("change", () => {
     set(input.checked);
     changed();
   });
-  return h("label", {}, input, label);
+  return h("label", { title }, input, label);
 }
 
 function select<T extends string>(label: string, options: [T, string][], get: () => T, set: (v: T) => void) {
@@ -164,19 +182,54 @@ function capacityOf(itemId: string): number {
   return s.fragile ? 0 : (s.max_load_on_top ?? Infinity);
 }
 
+/** Transport issues per unit id in the current container. */
+function issuesByItem(plan: ContainerPlan | null): Map<string, TransportIssue[]> {
+  const m = new Map<string, TransportIssue[]>();
+  for (const r of plan?.transport ?? []) for (const i of r.issues) m.set(i.item, [...(m.get(i.item) ?? []), i]);
+  return m;
+}
+
+const colorMode = () => $<HTMLSelectElement>("color-mode").value;
+
+/** Legend group a placement belongs to in the current colour mode. */
+function groupOf(p: Placement): string {
+  switch (colorMode()) {
+    case "stop":
+      return `stop:${p.stop}`;
+    case "securing": {
+      if (issuesByItem(currentPlan()).has(p.instance_id)) return "sec:needs";
+      return p.needs_chocks ? "sec:chocks" : "sec:ok";
+    }
+    case "item":
+      return `item:${p.item_id}`;
+    default:
+      return "";
+  }
+}
+
 function colorFor(p: Placement): string {
-  const mode = $<HTMLSelectElement>("color-mode").value;
-  if (mode === "stop") return paletteColor(p.stop);
-  if (mode === "load") {
-    const cap = capacityOf(p.item_id);
-    if (!Number.isFinite(cap)) return heat(0);
-    return cap <= 0 ? (p.load_on_top > 0 ? heat(1) : "#6b7280") : heat(p.load_on_top / cap);
+  switch (colorMode()) {
+    case "stop":
+      return paletteColor(p.stop);
+    case "load": {
+      const cap = capacityOf(p.item_id);
+      if (!Number.isFinite(cap)) return heat(0);
+      return cap <= 0 ? (p.load_on_top > 0 ? heat(1) : "#6b7280") : heat(p.load_on_top / cap);
+    }
+    case "margin": {
+      if (!Number.isFinite(p.support_margin)) return heat(0);
+      const half = Math.min(p.size[0], p.size[2]) / 2;
+      return heat(1 - Math.min(1, p.support_margin / (0.5 * half)));
+    }
+    case "securing":
+      return { "sec:needs": "#ff5c6c", "sec:chocks": "#f5b041", "sec:ok": "#3ecf8e" }[groupOf(p)] ?? "#3ecf8e";
+    default:
+      return p.color ?? itemColor(p.item_id);
   }
-  if (mode === "margin") {
-    const half = Math.min(p.size[0], p.size[2]) / 2;
-    return heat(1 - Math.min(1, p.support_margin / (0.5 * half)));
-  }
-  return p.color ?? itemColor(p.item_id);
+}
+
+function applyFocus() {
+  viewer.setFocus(focusKeys.size ? (p) => focusKeys.has(groupOf(p)) : null);
 }
 
 function renderLegend() {
@@ -184,19 +237,42 @@ function renderLegend() {
   legend.replaceChildren();
   const plan = currentPlan();
   if (!plan) return;
-  const row = (color: string, label: string) => h("div", { class: "row" }, h("span", { class: "swatch", style: `background:${color}` }), label);
-  const mode = $<HTMLSelectElement>("color-mode").value;
+  const row = (color: string, label: string, key?: string) => {
+    const r = h("div", { class: `row${key ? " clickable" : ""}${key && focusKeys.size && !focusKeys.has(key) ? " off" : ""}` }, h("span", { class: "swatch", style: `background:${color}` }), label);
+    if (key) {
+      r.title = "Click to show only this group; click more to add; click again to remove";
+      r.addEventListener("click", () => {
+        if (focusKeys.has(key)) focusKeys.delete(key);
+        else focusKeys.add(key);
+        applyFocus();
+        renderLegend();
+      });
+    }
+    return r;
+  };
+  const mode = colorMode();
+  const count = (key: string) => plan.placements.filter((p) => groupOf(p) === key).length;
   if (mode === "item") {
-    const ids = [...new Set(plan.placements.map((p) => p.item_id))];
-    ids.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    for (const id of ids) legend.append(row(itemColor(id), id));
+    const ids = [...new Set(plan.placements.map((p) => p.item_id))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    for (const id of ids) legend.append(row(itemColor(id), `${id} (${count(`item:${id}`)})`, `item:${id}`));
   } else if (mode === "stop") {
     for (const s of [...new Set(plan.placements.map((p) => p.stop))].sort((a, b) => a - b))
-      legend.append(row(paletteColor(s), s === 0 ? "no stop" : `stop ${s}`));
+      legend.append(row(paletteColor(s), `${s === 0 ? "no stop" : `stop ${s}`} (${count(`stop:${s}`)})`, `stop:${s}`));
+  } else if (mode === "securing") {
+    legend.append(
+      row("#ff5c6c", `needs securing (${count("sec:needs")})`, "sec:needs"),
+      row("#f5b041", `needs chocks (${count("sec:chocks")})`, "sec:chocks"),
+      row("#3ecf8e", `secured (${count("sec:ok")})`, "sec:ok"),
+    );
   } else if (mode === "load") {
     legend.append(row(heat(0), "unloaded / no limit"), row(heat(0.5), "50% of limit"), row(heat(1), "at limit"), row("#6b7280", "fragile (nothing on top)"));
   } else {
     legend.append(row(heat(0), "large margin"), row(heat(0.5), "moderate"), row(heat(1), "near tipping edge"));
+  }
+  if (focusKeys.size) {
+    legend.append(h("button", { class: "small", onclick: () => { focusKeys.clear(); applyFocus(); renderLegend(); } }, "Show all"));
+  } else if (["item", "stop", "securing"].includes(mode)) {
+    legend.append(h("p", { class: "hint" }, "Click an entry to isolate it"));
   }
 }
 
@@ -205,6 +281,7 @@ function renderLegend() {
 function renderEditor() {
   const c = req.container;
   const o = req.options;
+  const ph = o.physics;
   const ed = $("editor");
   ed.replaceChildren(
     h("h3", {}, "Container"),
@@ -218,50 +295,146 @@ function renderEditor() {
       num("Height mm (Y)", () => c.height, (v) => (c.height = Math.max(1, v ?? 1)), { min: 1 }),
       num("Depth mm (Z)", () => c.depth, (v) => (c.depth = Math.max(1, v ?? 1)), { min: 1 }),
     ),
-    h("p", { class: "hint" }, "The door is at the far end of the depth axis (orange outline)."),
+    h("p", { class: "hint" }, "The door is at the far end of the depth axis (orange outline); the front wall is at depth 0."),
 
-    h("h3", {}, "Strategy"),
+    h("h3", {}, "Loading strategy"),
     h(
       "div",
       { class: "grid two" },
-      select<FillBias>(
-        "Fill order",
+      select<StopOrder>(
+        "Unloading order",
         [
-          ["wall_building", "Walls, back → door"],
+          ["lifo", "LIFO – last stop loaded first"],
+          ["fifo", "FIFO – first stop loaded first"],
+        ],
+        () => o.stop_order,
+        (v) => (o.stop_order = v),
+      ),
+      select<LoadPriority>(
+        "Within a stop, load",
+        [
+          ["volume", "Largest first"],
+          ["mass", "Heaviest first"],
+          ["base_area", "Largest base first"],
+          ["height", "Tallest first"],
+          ["as_listed", "As listed (grouped)"],
+        ],
+        () => o.priority,
+        (v) => (o.priority = v),
+      ),
+      select<FillBias>(
+        "Fill pattern",
+        [
+          ["wall_building", "Walls across width"],
           ["floor_first", "Floor layers first"],
-          ["longitudinal", "Walls, left → right"],
+          ["longitudinal", "Walls along length"],
           ["lateral", "Floor rows along length"],
-          ["corner_first", "From back corner"],
+          ["corner_first", "From a corner"],
         ],
         () => o.bias,
         (v) => (o.bias = v),
       ),
       num("Max containers", () => o.max_containers, (v) => (o.max_containers = Math.max(1, Math.round(v ?? 1))), { min: 1, step: "1" }),
     ),
+    h("p", { class: "hint" }, o.stop_order === "fifo"
+      ? "FIFO fills from the door towards the back, so the units loaded first are unloaded first (side loading / drive-through)."
+      : "LIFO fills from the back wall towards the door; the first stop ends up at the door (rear-door vehicles)."),
     slider("Stability margin (share of half-footprint)", 0, 0.5, 0.01, () => o.stability_margin, (v) => (o.stability_margin = v)),
     slider("Minimum support area", 0, 1, 0.05, () => o.min_support_ratio, (v) => (o.min_support_ratio = v), (v) => `${Math.round(v * 100)}%`),
     slider("Balance (keep CoG centred)", 0, 1, 0.05, () => o.balance_weight, (v) => (o.balance_weight = v)),
     h("div", { class: "checks" }, check("Allow rotation", () => o.allow_rotation, (v) => (o.allow_rotation = v))),
+
+    h("h3", {}, "Physics & transport"),
+    h("p", { class: "hint" }, "Always checked: gravity support, tipping at rest, stacking loads, payload. Pick the transport legs to check (quasi-static, EN 12195-1 / CTU Code):"),
+    h(
+      "div",
+      { class: "cases" },
+      ...presets.map((pc) => {
+        const on = () => ph.transport.some((t) => t.name === pc.name);
+        return h(
+          "label",
+          { title: `forward ${pc.forward} g, backward ${pc.backward} g, sideways ${pc.sideways} g, vertical ${pc.vertical_min}–${pc.vertical_max} g` },
+          (() => {
+            const cb = h("input", { type: "checkbox" }) as HTMLInputElement;
+            cb.checked = on();
+            cb.addEventListener("change", () => {
+              ph.transport = cb.checked ? [...ph.transport.filter((t) => t.name !== pc.name), pc] : ph.transport.filter((t) => t.name !== pc.name);
+              changed();
+            });
+            return cb;
+          })(),
+          pc.name,
+          h("small", {}, ` ${pc.forward}/${pc.backward}/${pc.sideways} g`),
+        );
+      }),
+    ),
+    h(
+      "div",
+      { class: "checks" },
+      check("Sliding", () => ph.check_sliding, (v) => (ph.check_sliding = v), "Friction vs acceleration, unless blocked by walls or neighbours"),
+      check("Tipping", () => ph.check_tipping, (v) => (ph.check_tipping = v), "Tipping moment vs restoring moment, unless blocked above the CoG"),
+      check("Dynamic stacking", () => ph.dynamic_stacking, (v) => (ph.dynamic_stacking = v), "Multiply loads on top by the vertical factor"),
+      check("Chocks for round items", () => ph.use_chocks, (v) => (ph.use_chocks = v), "Lying drums and balls are held by wedges; off = they must be wedged in by neighbours"),
+      check("Load end secured", () => ph.secure_load_end, (v) => (ph.secure_load_end = v), "A locking bar / gate / dunnage closes the open end of the load"),
+    ),
+    slider("Default friction μ", 0.1, 0.8, 0.05, () => ph.default_friction, (v) => (ph.default_friction = v)),
 
     h(
       "h3",
       {},
       `Items (${req.items.reduce((s, i) => s + i.quantity, 0)} units)`,
       h("span", { class: "spacer" }),
-      h("button", { class: "small", onclick: () => addItem("box") }, "+ Box"),
-      h("button", { class: "small", onclick: () => addItem("cylinder") }, "+ Cylinder"),
+      (() => {
+        const sel = h("select", { title: "Add an item of this shape" }, h("option", { value: "" }, "+ Add…"), ...SHAPE_KINDS.map(([k, t]) => h("option", { value: k }, t))) as HTMLSelectElement;
+        sel.addEventListener("change", () => {
+          if (sel.value) addItem(sel.value as ShapeKind);
+          sel.value = "";
+        });
+        return sel;
+      })(),
     ),
     ...req.items.map(itemCard),
   );
 }
 
-function addItem(kind: "box" | "cylinder") {
+function addItem(kind: ShapeKind) {
   const it = newItem(req.items.length + 1);
   while (req.items.some((i) => i.id === it.id)) it.id += "'";
-  if (kind === "cylinder") it.shape = { kind: "cylinder", radius: 150, length: 800 };
+  it.shape = defaultShape(kind);
   req.items.push(it);
   renderEditor();
   changed();
+}
+
+function shapeFields(s: Shape): HTMLElement[] {
+  const pos = (label: string, get: () => number, set: (v: number) => void) => num(label, get, (v) => set(Math.max(1, v ?? 1)), { min: 1 });
+  switch (s.kind) {
+    case "box":
+      return [pos("W mm", () => s.w, (v) => (s.w = v)), pos("H mm", () => s.h, (v) => (s.h = v)), pos("D mm", () => s.d, (v) => (s.d = v))];
+    case "cylinder":
+      return [pos("Radius mm", () => s.radius, (v) => (s.radius = v)), pos("Length mm", () => s.length, (v) => (s.length = v)), h("span")];
+    case "sphere":
+      return [pos("Radius mm", () => s.radius, (v) => (s.radius = v)), h("span"), h("span")];
+    case "cone":
+      return [pos("Base radius mm", () => s.radius, (v) => (s.radius = v)), pos("Height mm", () => s.height, (v) => (s.height = v)), h("span")];
+    case "pyramid":
+      return [pos("Base W mm", () => s.w, (v) => (s.w = v)), pos("Base D mm", () => s.d, (v) => (s.d = v)), pos("Height mm", () => s.height, (v) => (s.height = v))];
+    case "prism":
+      return [
+        num("Sides", () => s.sides, (v) => (s.sides = Math.min(64, Math.max(3, Math.round(v ?? 3)))), { min: 3, max: 64, step: "1" }),
+        pos("Radius mm", () => s.radius, (v) => (s.radius = v)),
+        pos("Length mm", () => s.length, (v) => (s.length = v)),
+      ];
+    case "l_profile":
+      return [
+        pos("Leg A mm", () => s.a, (v) => (s.a = v)),
+        pos("Leg B mm", () => s.b, (v) => (s.b = v)),
+        pos("Thickness mm", () => s.thickness, (v) => (s.thickness = Math.min(v, Math.min(s.a, s.b) - 1))),
+        pos("Length mm", () => s.length, (v) => (s.length = v)),
+        h("span"),
+        h("span"),
+      ];
+  }
 }
 
 function itemCard(it: ItemSpec, index: number): HTMLElement {
@@ -278,10 +451,10 @@ function itemCard(it: ItemSpec, index: number): HTMLElement {
     else it.id = v;
     changed();
   });
-  const shapeSel = h("select", {}, h("option", { value: "box" }, "Box"), h("option", { value: "cylinder" }, "Cylinder")) as HTMLSelectElement;
+  const shapeSel = h("select", {}, ...SHAPE_KINDS.map(([k, t]) => h("option", { value: k }, t))) as HTMLSelectElement;
   shapeSel.value = it.shape.kind;
   shapeSel.addEventListener("change", () => {
-    it.shape = shapeSel.value === "box" ? { kind: "box", w: 400, h: 300, d: 300 } : { kind: "cylinder", radius: 150, length: 800 };
+    it.shape = defaultShape(shapeSel.value as ShapeKind);
     renderEditor();
     changed();
   });
@@ -292,19 +465,7 @@ function itemCard(it: ItemSpec, index: number): HTMLElement {
   } }, "✕");
 
   const s = it.shape;
-  const dims =
-    s.kind === "box"
-      ? [
-          num("W mm", () => s.w, (v) => (s.w = Math.max(1, v ?? 1)), { min: 1 }),
-          num("H mm", () => s.h, (v) => (s.h = Math.max(1, v ?? 1)), { min: 1 }),
-          num("D mm", () => s.d, (v) => (s.d = Math.max(1, v ?? 1)), { min: 1 }),
-        ]
-      : [
-          num("Radius mm", () => s.radius, (v) => (s.radius = Math.max(1, v ?? 1)), { min: 1 }),
-          num("Length mm", () => s.length, (v) => (s.length = Math.max(1, v ?? 1)), { min: 1 }),
-          h("span"),
-        ];
-
+  const roundish = s.kind === "cylinder" || s.kind === "sphere";
   return h(
     "div",
     { class: "card", style: `border-left-color:${it.color ?? paletteColor(index)}` },
@@ -312,18 +473,21 @@ function itemCard(it: ItemSpec, index: number): HTMLElement {
     h(
       "div",
       { class: "grid" },
-      ...dims,
+      ...shapeFields(s),
       num("Mass kg", () => it.mass, (v) => (it.mass = Math.max(0, v ?? 0)), { min: 0 }),
       num("Quantity", () => it.quantity, (v) => (it.quantity = Math.max(0, Math.round(v ?? 0))), { min: 0, step: "1" }),
       num("Max load on top kg", () => it.max_load_on_top, (v) => (it.max_load_on_top = v), { nullable: true, placeholder: "∞" }),
       num("Stop (1 = first off)", () => it.stop, (v) => (it.stop = Math.max(0, Math.round(v ?? 0))), { min: 0, step: "1" }),
       select<Zone>("Zone", [["any", "Anywhere"], ["back", "Back"], ["front", "Near door"]], () => it.zone, (v) => (it.zone = v)),
+      num("Friction μ", () => it.friction, (v) => (it.friction = v === null ? null : Math.max(0, v)), { nullable: true, min: 0, placeholder: String(req.options.physics.default_friction) }),
     ),
     h(
       "div",
       { class: "checks" },
       check("Fragile", () => it.fragile, (v) => (it.fragile = v)),
-      check(s.kind === "box" ? "This side up" : "Upright only", () => it.upright_only, (v) => (it.upright_only = v)),
+      s.kind === "sphere" || s.kind === "cone"
+        ? null
+        : check(roundish ? "Upright only" : "This side up", () => it.upright_only, (v) => (it.upright_only = v)),
       check("Floor only", () => it.floor_only, (v) => (it.floor_only = v)),
     ),
   );
@@ -342,6 +506,14 @@ function describeViolation(v: Record<string, unknown>): string {
   return `${String(kind).replace(/_/g, " ")}: ${Object.values(rest).map((x) => (typeof x === "number" ? fmt(x, 1) : String(x))).join(", ")}`;
 }
 
+const DIR_LABEL: Record<Direction, string> = { forward: "forward (braking)", backward: "backward", left: "left", right: "right" };
+
+function describeIssue(i: TransportIssue): string {
+  if (i.kind === "stack_overload") return `${i.item}: stack overloaded by ${fmt(i.required, 1)} kg at ${i.acceleration} g`;
+  const force = i.required < 0.01 ? "< 0.01" : fmt(i.required, 2);
+  return `${i.item}: ${i.kind} ${DIR_LABEL[i.direction!]} at ${i.acceleration} g → secure with ≥ ${force} kN`;
+}
+
 function renderResults() {
   const panel = $("results");
   panel.replaceChildren();
@@ -351,9 +523,19 @@ function renderResults() {
   }
   const r = result;
   const valid = r.containers.every((c) => c.violations.length === 0);
+  const unsecured = r.containers.reduce((n, c) => n + new Set(c.transport.flatMap((t) => t.issues.map((i) => i.item))).size, 0);
+  const chocks = r.containers.reduce((n, c) => n + c.placements.filter((p) => p.needs_chocks).length, 0);
   panel.append(
     h("h3", {}, "Plan", h("span", { class: "spacer" }), stale ? h("span", { class: "badge warn" }, "out of date") : null),
-    h("div", {}, h("span", { class: `badge ${valid ? "ok" : "bad"}` }, valid ? "✓ Physically valid" : "✗ Violations found")),
+    h(
+      "div",
+      { class: "actions" },
+      h("span", { class: `badge ${valid ? "ok" : "bad"}` }, valid ? "✓ Stable at rest" : "✗ Violations found"),
+      req.options.physics.transport.length
+        ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} units need securing` : "✓ Secured for transport")
+        : null,
+      chocks ? h("span", { class: "badge warn" }, `${chocks} need chocks`) : null,
+    ),
     stat("Units packed", `${r.packed_units} / ${r.requested_units}`),
     stat("Containers", String(r.containers.length)),
     stat("Volume used", `${fmt(r.volume_utilization * 100, 1)} %`),
@@ -377,21 +559,40 @@ function renderResults() {
     if (plan.violations.length) {
       panel.append(h("h3", {}, "Violations"), h("ul", { class: "list" }, ...plan.violations.map((v) => h("li", {}, describeViolation(v)))));
     }
+    for (const t of plan.transport) {
+      const units = new Set(t.issues.map((i) => i.item)).size;
+      const total = t.issues.filter((i) => i.kind !== "stack_overload").reduce((m, i) => Math.max(m, i.required), 0);
+      const shown = [...t.issues].sort((a, b) => b.required - a.required).slice(0, 12);
+      panel.append(
+        h("h3", {}, t.case, h("span", { class: "spacer" }), h("span", { class: `badge ${units ? "warn" : "ok"}` }, units ? `${units} units` : "OK")),
+        units
+          ? h(
+              "div",
+              {},
+              h("p", { class: "hint" }, `Largest single securing force: ${fmt(total, 2)} kN. Close gaps with dunnage or lash the listed units.`),
+              h("ul", { class: "issue-list" }, ...shown.map((i) => h("li", {}, describeIssue(i))), t.issues.length > shown.length ? h("li", {}, `… ${t.issues.length - shown.length} more`) : null),
+            )
+          : h("p", { class: "hint" }, "Nothing slides or tips: friction and blocking hold everything."),
+      );
+    }
   }
 
   if (selected) {
     const p = selected;
     const cap = capacityOf(p.item_id);
+    const own = issuesByItem(plan).get(p.instance_id) ?? [];
     panel.append(
       h("h3", {}, `Selected: ${p.instance_id}`),
       stat("Load order", `#${p.seq + 1}`),
+      stat("Shape", `${p.shape.kind.replace("_", "-")}, ${p.orientation}`),
       stat("Position", p.position.map((v) => fmt(v)).join(", ") + " mm"),
       stat("Size", p.size.map((v) => fmt(v)).join(" × ") + " mm"),
-      stat("Orientation", p.orientation),
       stat("Mass", `${fmt(p.mass, 1)} kg`),
       stat("Load on top", `${fmt(p.load_on_top, 1)} kg${Number.isFinite(cap) ? ` of ${fmt(cap)} kg` : ""}`),
-      stat("Stability margin", `${fmt(p.support_margin, 1)} mm`),
+      stat("Stability margin", Number.isFinite(p.support_margin) ? `${fmt(p.support_margin, 1)} mm` : "held by chocks"),
       stat("Stop", p.stop === 0 ? "—" : String(p.stop)),
+      p.needs_chocks ? stat("Chocks", "required") : "",
+      own.length ? h("ul", { class: "issue-list" }, ...own.map((i) => h("li", {}, describeIssue(i)))) : "",
     );
   }
 
@@ -418,24 +619,39 @@ function stat(label: string, value: string) {
   return h("div", { class: "stat" }, h("span", {}, label), h("span", {}, value));
 }
 
-function showPlan() {
+// ---------- 3D view & timeline ----------
+
+const meshKey = (p: Placement) => `${JSON.stringify(p.shape)}|${p.orientation}`;
+
+async function ensureMeshes(plan: ContainerPlan) {
+  const missing = new Map<string, Placement>();
+  for (const p of plan.placements) if (!meshCache.has(meshKey(p))) missing.set(meshKey(p), p);
+  await Promise.all(
+    [...missing].map(async ([key, p]) => {
+      meshCache.set(key, await invoke<RenderMesh>("shape_mesh", { shape: p.shape, orientation: p.orientation }));
+    }),
+  );
+}
+
+async function showPlan(keepStep = false) {
   const plan = currentPlan();
   $("empty").style.display = plan ? "none" : "grid";
-  const tabs = $("container-tabs");
-  tabs.replaceChildren(
-    ...(result?.containers ?? []).map((_, i) =>
-      h("button", { class: i === current ? "active" : "", onclick: () => selectContainer(i) }, `#${i + 1}`),
-    ),
+  $("container-tabs").replaceChildren(
+    ...(result?.containers ?? []).map((_, i) => h("button", { class: i === current ? "active" : "", onclick: () => selectContainer(i) }, `#${i + 1}`)),
   );
   if (!plan) {
     viewer.clear();
     renderLegend();
+    updateStep();
     return;
   }
-  viewer.show(plan, colorFor, plan.placements.length ? plan.metrics.center_of_mass : null);
   const step = $<HTMLInputElement>("step");
+  const prev = Number(step.value);
+  await ensureMeshes(plan);
+  viewer.show(plan, colorFor, (p) => ({ key: meshKey(p), data: meshCache.get(meshKey(p))! }), plan.placements.length ? plan.metrics.center_of_mass : null);
   step.max = String(plan.placements.length);
-  step.value = String(plan.placements.length);
+  step.value = String(keepStep ? Math.min(prev, plan.placements.length) : plan.placements.length);
+  applyFocus();
   updateStep();
   renderLegend();
 }
@@ -443,16 +659,51 @@ function showPlan() {
 function selectContainer(i: number) {
   current = i;
   selected = null;
+  focusKeys.clear();
   showPlan();
   renderResults();
+}
+
+function setStep(n: number) {
+  const step = $<HTMLInputElement>("step");
+  step.value = String(Math.max(0, Math.min(Number(step.max), n)));
+  updateStep();
 }
 
 function updateStep() {
   const plan = currentPlan();
   const n = Number($<HTMLInputElement>("step").value);
   viewer.setVisibleCount(n);
-  const last = plan?.placements[n - 1];
-  $("step-label").textContent = plan ? `${n} / ${plan.placements.length}${last ? ` · ${last.instance_id}` : ""}` : "";
+  const total = plan?.placements.length ?? 0;
+  const bySeq = (s: number) => plan?.placements.find((p) => p.seq === s);
+  const last = bySeq(n - 1);
+  const next = bySeq(n);
+  $("step-label").textContent = plan ? `Step ${n} / ${total}${last ? ` · placed ${last.instance_id}` : ""}` : "";
+  $("next-label").textContent = next
+    ? `Next: ${next.instance_id} (${next.shape.kind.replace("_", "-")}, ${fmt(next.mass, 1)} kg) → x ${fmt(next.position[0])}, y ${fmt(next.position[1])}, z ${fmt(next.position[2])}${next.needs_chocks ? " · chock it" : ""}`
+    : plan
+      ? "All items loaded"
+      : "";
+  for (const id of ["first", "prev"]) $<HTMLButtonElement>(id).disabled = !plan || n <= 0;
+  for (const id of ["next", "last"]) $<HTMLButtonElement>(id).disabled = !plan || n >= total;
+}
+
+function stopPlaying() {
+  if (playing !== null) clearInterval(playing);
+  playing = null;
+  $("play").textContent = "▶";
+}
+
+function togglePlay() {
+  const step = $<HTMLInputElement>("step");
+  if (playing !== null) return stopPlaying();
+  if (!currentPlan()) return;
+  if (step.value === step.max) setStep(0);
+  $("play").textContent = "⏸";
+  playing = window.setInterval(() => {
+    setStep(Number(step.value) + 1);
+    if (Number(step.value) >= Number(step.max)) stopPlaying();
+  }, 350);
 }
 
 // ---------- actions ----------
@@ -469,37 +720,44 @@ async function runPack() {
     return;
   }
   const btn = $<HTMLButtonElement>("pack");
-  btn.disabled = true;
+  const btnMobile = $<HTMLButtonElement>("pack-mobile");
+  btn.disabled = btnMobile.disabled = true;
+  stopPlaying();
   setStatus("Packing…");
   try {
     result = await invoke<PackResult>("pack_request", { request: req });
     stale = false;
     current = 0;
     selected = null;
+    focusKeys.clear();
     const valid = result.containers.every((c) => c.violations.length === 0);
     setStatus(
       `${result.packed_units}/${result.requested_units} units in ${result.containers.length} container(s), ${result.elapsed_ms} ms`,
       valid && result.unpacked.length === 0 ? "ok" : "bad",
     );
-    showPlan();
+    showTab("view");
+    await showPlan();
     renderResults();
   } catch (e) {
     setStatus(String(e), "bad");
   } finally {
-    btn.disabled = false;
+    btn.disabled = btnMobile.disabled = false;
   }
 }
 
 function loadRequest(r: PackRequest) {
   // Fill in anything older files may lack.
+  const base = emptyRequest();
   req = {
-    container: { ...emptyRequest().container, ...r.container, cog_limits: { ...emptyRequest().container.cog_limits, ...r.container.cog_limits } },
+    container: { ...base.container, ...r.container, cog_limits: { ...base.container.cog_limits, ...r.container.cog_limits } },
     items: r.items.map((i) => ({ ...newItem(0), ...i })),
-    options: { ...defaultOptions(), ...r.options },
+    options: { ...defaultOptions(), ...r.options, physics: { ...defaultPhysics(), ...r.options?.physics } },
   };
   result = null;
   stale = false;
   selected = null;
+  focusKeys.clear();
+  stopPlaying();
   renderEditor();
   renderResults();
   showPlan();
@@ -518,7 +776,7 @@ async function saveTextFile(defaultPath: string, ext: string, contents: string) 
   const path = await save({ defaultPath, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
   if (!path) return;
   try {
-    await invoke("write_text_file", { path, contents });
+    await writeTextFile(path, contents);
     setStatus(`Saved ${path}`, "ok");
   } catch (e) {
     setStatus(String(e), "bad");
@@ -529,7 +787,7 @@ async function openRequest() {
   const path = await open({ multiple: false, filters: [{ name: "OmniPack setup", extensions: ["json"] }] });
   if (!path || Array.isArray(path)) return;
   try {
-    const text = await invoke<string>("read_text_file", { path });
+    const text = await readTextFile(path);
     const parsed = JSON.parse(text) as PackRequest;
     if (!parsed.container || !Array.isArray(parsed.items)) throw new Error("not an OmniPack setup file");
     loadRequest(parsed);
@@ -545,11 +803,18 @@ function exportPlanJson() {
 
 function exportLoadList() {
   if (!result) return;
-  const rows = [["container", "seq", "unit", "item", "x_mm", "y_mm", "z_mm", "w_mm", "h_mm", "d_mm", "orientation", "mass_kg", "load_on_top_kg", "stop"]];
-  for (const c of result.containers)
+  const rows = [["container", "seq", "unit", "item", "shape", "x_mm", "y_mm", "z_mm", "w_mm", "h_mm", "d_mm", "orientation", "mass_kg", "load_on_top_kg", "stop", "chocks", "securing"]];
+  for (const c of result.containers) {
+    const issues = issuesByItem(c);
     for (const p of c.placements)
-      rows.push([c.id, String(p.seq + 1), p.instance_id, p.item_id, ...p.position.map((v) => v.toFixed(1)), ...p.size.map((v) => v.toFixed(1)), p.orientation, p.mass.toFixed(2), p.load_on_top.toFixed(2), String(p.stop)]);
-  const csv = rows.map((r) => r.map((v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)).join(",")).join("\n");
+      rows.push([
+        c.id, String(p.seq + 1), p.instance_id, p.item_id, p.shape.kind,
+        ...p.position.map((v) => v.toFixed(1)), ...p.size.map((v) => v.toFixed(1)),
+        p.orientation, p.mass.toFixed(2), p.load_on_top.toFixed(2), String(p.stop),
+        p.needs_chocks ? "yes" : "", (issues.get(p.instance_id) ?? []).map(describeIssue).join("; "),
+      ]);
+  }
+  const csv = rows.map((r) => r.map((v) => (/[",;\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)).join(",")).join("\n");
   saveTextFile(`${req.container.id}-load-list.csv`, "csv", csv);
 }
 
@@ -563,7 +828,41 @@ async function refreshCatalog() {
   }
 }
 
+/** In-page text prompt (window.prompt is unavailable in some mobile WebViews). */
+function promptText(label: string, value: string): Promise<string | null> {
+  const modal = $("modal");
+  const input = $<HTMLInputElement>("modal-input");
+  $("modal-label").textContent = label;
+  input.value = value;
+  modal.hidden = false;
+  input.focus();
+  input.select();
+  return new Promise((resolve) => {
+    const done = (v: string | null) => {
+      modal.hidden = true;
+      $("modal-form").removeEventListener("submit", onSubmit);
+      $("modal-cancel").removeEventListener("click", onCancel);
+      resolve(v);
+    };
+    const onSubmit = (e: Event) => {
+      e.preventDefault();
+      done(input.value.trim() || null);
+    };
+    const onCancel = () => done(null);
+    $("modal-form").addEventListener("submit", onSubmit);
+    $("modal-cancel").addEventListener("click", onCancel);
+  });
+}
+
+function showTab(tab: string) {
+  document.body.dataset.tab = tab;
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#mobile-tabs button[data-tab]")) b.classList.toggle("active", b.dataset.tab === tab);
+}
+
 // ---------- wiring ----------
+
+for (const b of document.querySelectorAll<HTMLButtonElement>("#mobile-tabs button[data-tab]")) b.addEventListener("click", () => showTab(b.dataset.tab!));
+$("pack-mobile").addEventListener("click", runPack);
 
 $<HTMLSelectElement>("sample").addEventListener("change", (e) => {
   const sel = e.target as HTMLSelectElement;
@@ -590,7 +889,7 @@ $<HTMLSelectElement>("catalog").addEventListener("change", async (e) => {
   }
 });
 $("cat-save").addEventListener("click", async () => {
-  const name = window.prompt("Save this setup to the catalog as:", req.container.id);
+  const name = await promptText("Save this setup to the catalog as:", req.container.id);
   if (!name) return;
   try {
     await invoke("catalog_save", { name, request: req });
@@ -611,35 +910,19 @@ $("cat-delete").addEventListener("click", async () => {
 });
 
 $("color-mode").addEventListener("change", () => {
-  const n = $<HTMLInputElement>("step").value;
-  showPlan();
-  $<HTMLInputElement>("step").value = n;
-  updateStep();
+  focusKeys.clear();
+  showPlan(true);
 });
 $("reset-cam").addEventListener("click", () => viewer.resetCamera());
-$("step").addEventListener("input", updateStep);
-$("play").addEventListener("click", () => {
-  const step = $<HTMLInputElement>("step");
-  const btn = $("play");
-  if (playing !== null) {
-    clearInterval(playing);
-    playing = null;
-    btn.textContent = "▶";
-    return;
-  }
-  if (step.value === step.max) step.value = "0";
-  btn.textContent = "⏸";
-  playing = window.setInterval(() => {
-    const n = Number(step.value) + 1;
-    step.value = String(n);
-    updateStep();
-    if (n >= Number(step.max)) {
-      clearInterval(playing!);
-      playing = null;
-      btn.textContent = "▶";
-    }
-  }, 250);
+$("step").addEventListener("input", () => {
+  stopPlaying();
+  updateStep();
 });
+$("first").addEventListener("click", () => { stopPlaying(); setStep(0); });
+$("prev").addEventListener("click", () => { stopPlaying(); setStep(Number($<HTMLInputElement>("step").value) - 1); });
+$("next").addEventListener("click", () => { stopPlaying(); setStep(Number($<HTMLInputElement>("step").value) + 1); });
+$("last").addEventListener("click", () => { stopPlaying(); setStep(Number($<HTMLInputElement>("step").max)); });
+$("play").addEventListener("click", togglePlay);
 
 viewer.onPick((p) => {
   selected = p;
@@ -648,10 +931,34 @@ viewer.onPick((p) => {
 });
 
 window.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.key === "Enter") runPack();
+  if (e.ctrlKey && e.key === "Enter") return void runPack();
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
+  if (typing || !currentPlan()) return;
+  const n = Number($<HTMLInputElement>("step").value);
+  const keys: Record<string, () => void> = {
+    ArrowRight: () => setStep(n + 1),
+    ArrowLeft: () => setStep(n - 1),
+    Home: () => setStep(0),
+    End: () => setStep(Number($<HTMLInputElement>("step").max)),
+    " ": togglePlay,
+  };
+  const action = keys[e.key];
+  if (action) {
+    e.preventDefault();
+    if (e.key !== " ") stopPlaying();
+    action();
+  }
 });
 
-renderEditor();
-renderResults();
-showPlan();
-refreshCatalog();
+async function init() {
+  try {
+    presets = await invoke<TransportCase[]>("transport_presets");
+  } catch {
+    presets = [ROAD];
+  }
+  renderEditor();
+  renderResults();
+  showPlan();
+  refreshCatalog();
+}
+init();

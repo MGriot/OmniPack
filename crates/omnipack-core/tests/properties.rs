@@ -8,8 +8,14 @@ use proptest::prelude::*;
 
 fn shape() -> impl Strategy<Value = Shape> {
     prop_oneof![
-        3 => (20.0..120.0f64, 20.0..120.0f64, 20.0..120.0f64).prop_map(|(w, h, d)| Shape::Box { w, h, d }),
+        4 => (20.0..120.0f64, 20.0..120.0f64, 20.0..120.0f64).prop_map(|(w, h, d)| Shape::Box { w, h, d }),
         1 => (10.0..50.0f64, 20.0..150.0f64).prop_map(|(radius, length)| Shape::Cylinder { radius, length }),
+        1 => (10.0..45.0f64).prop_map(|radius| Shape::Sphere { radius }),
+        1 => (10.0..50.0f64, 20.0..100.0f64).prop_map(|(radius, height)| Shape::Cone { radius, height }),
+        1 => (20.0..100.0f64, 20.0..100.0f64, 20.0..90.0f64).prop_map(|(w, d, height)| Shape::Pyramid { w, d, height }),
+        1 => (3u32..9, 15.0..50.0f64, 20.0..150.0f64).prop_map(|(sides, radius, length)| Shape::Prism { sides, radius, length }),
+        1 => (30.0..100.0f64, 30.0..100.0f64, 4.0..15.0f64, 40.0..150.0f64)
+            .prop_map(|(a, b, thickness, length)| Shape::LProfile { a, b, thickness, length }),
     ]
 }
 
@@ -38,6 +44,7 @@ fn item(i: usize) -> impl Strategy<Value = ItemSpec> {
             zone: Zone::Any,
             com_offset,
             color: None,
+            friction: None,
         })
 }
 
@@ -53,8 +60,19 @@ fn request() -> impl Strategy<Value = PackRequest> {
         ],
         0.0..0.4f64,
         0.0..0.8f64,
+        (
+            prop_oneof![Just(StopOrder::Lifo), Just(StopOrder::Fifo)],
+            prop_oneof![
+                Just(LoadPriority::Volume),
+                Just(LoadPriority::Mass),
+                Just(LoadPriority::BaseArea),
+                Just(LoadPriority::Height),
+                Just(LoadPriority::AsListed)
+            ],
+            any::<bool>(),
+        ),
     )
-        .prop_map(|(items, bias, stability_margin, min_support_ratio)| PackRequest {
+        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks))| PackRequest {
             container: ContainerSpec {
                 id: "c".into(),
                 width: 233.0,
@@ -65,7 +83,16 @@ fn request() -> impl Strategy<Value = PackRequest> {
                 cog_limits: CogLimits::default(),
             },
             items,
-            options: PackOptions { bias, stability_margin, min_support_ratio, max_containers: 3, ..Default::default() },
+            options: PackOptions {
+                bias,
+                stability_margin,
+                min_support_ratio,
+                stop_order,
+                priority,
+                physics: PhysicsOptions { use_chocks, ..Default::default() },
+                max_containers: 3,
+                ..Default::default()
+            },
         })
 }
 
@@ -79,6 +106,13 @@ proptest! {
         prop_assert_eq!(res.requested_units, requested as usize);
         prop_assert_eq!(res.packed_units + res.unpacked.len(), requested as usize);
         for c in &res.containers {
+            if !c.violations.is_empty() {
+                // Keep the failing case for replay with `omnipack pack`.
+                let _ = std::fs::write(
+                    concat!(env!("CARGO_TARGET_TMPDIR"), "/failing-request.json"),
+                    serde_json::to_string_pretty(&req).unwrap(),
+                );
+            }
             prop_assert!(c.violations.is_empty(), "{:?}", c.violations);
             // Every intermediate loading state is valid too.
             for k in 1..c.placements.len() {
@@ -102,6 +136,15 @@ fn mixed_truck_load_is_valid() {
         let res = pack(&generate::mixed(seed)).unwrap();
         assert!(res.is_valid(), "seed {seed}: {:?}", res.containers[0].violations);
         assert!(res.unpacked.is_empty(), "seed {seed}: {:?}", res.unpacked);
+    }
+}
+
+#[test]
+fn shapes_sample_is_valid() {
+    for seed in 1..=3 {
+        let res = pack(&generate::shapes(seed)).unwrap();
+        assert!(res.is_valid(), "seed {seed}: {:?}", res.containers.iter().map(|c| &c.violations).collect::<Vec<_>>());
+        assert!(res.packed_units > 0);
     }
 }
 

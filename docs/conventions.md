@@ -10,8 +10,19 @@
   (contact 0.05 mm, penetration 0.01 mm).
 
 ## Shapes and orientations
-- `box {w,h,d}`: local extents along local x, y, z.
-- `cylinder {radius,length}`: axis along local y.
+| Shape | Parameters | Orientations used |
+|---|---|---|
+| `box` | `w, h, d` | all 6 |
+| `cylinder` | `radius, length` (axis = local y) | upright, lying along X, lying along Z |
+| `sphere` | `radius` | 1 |
+| `cone` | `radius, height` (base down) | upright only |
+| `pyramid` | `w, d, height` (base down) | upright, 90° yaw |
+| `prism` | `sides` (3–64), `radius` (circumradius), `length` | upright ×2, lying on a flat side ×2 |
+| `l_profile` | legs `a`, `b`, `thickness`, `length` | all 6 |
+
+Volumes, centres of mass and render meshes come from the real geometry (parry3d),
+so a cone's centre of gravity sits at a quarter of its height.
+
 - An orientation says which local extent lies along world X, Y, Z,
   e.g. `WHD` = unrotated, `DHW` = 90° yaw, `HWD` = local height lying along X.
   `upright_only` keeps local Y vertical (`WHD`, `DHW`).
@@ -31,10 +42,16 @@ Each bias is a strict priority of the three axes (normalised positions):
 off the centreline. Items with `zone: front` prefer the door, `back` the far wall.
 
 ## Loading order
-Units are loaded later-stop first (`stop: 0` = stays aboard, loaded first),
-then back-zone, then floor-only, then larger and heavier first. `accessibility`
-is the share of stop-tagged units not blocked (in front or on top) by a unit of
-a later stop.
+- `stop_order: lifo` (default, rear-door vehicles): later stops are loaded first
+  and filling runs from the back wall; the first stop ends up at the door.
+- `stop_order: fifo` (side loading / drive-through): stop 1 is loaded first and
+  filling runs from the door towards the back.
+- `stop: 0` = stays aboard, loaded first either way. Then back-zone units, then
+  floor-only units, then `priority`: `volume` (default), `mass`, `base_area`,
+  `height` or `as_listed`.
+
+`accessibility` is the share of stop-tagged units not blocked (in front or on
+top) by a unit of a later stop, when unloading through the door.
 
 ## JSON
 Request: `PackRequest { container, items, options }` (see

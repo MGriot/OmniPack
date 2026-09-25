@@ -16,6 +16,9 @@
   "dependencies": {
     "@babylonjs/core": "^9.28.0",
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-dialog": "^2.7.3"
-  }
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-fs": "^2.5.2"
+  },
+  "license": "Apache-2.0",
+  "description": "OmniPack 3D loading planner - Tauri app"
 }

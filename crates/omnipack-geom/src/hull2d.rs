@@ -83,6 +83,35 @@ pub fn signed_distance_to_polygon(p: Pt2, hull: &[Pt2]) -> f64 {
     }
 }
 
+/// Distance from `p` along the unit direction `d` (x, z) to the boundary of a
+/// convex polygon (0 if `p` is outside or the polygon is degenerate).
+pub fn ray_exit_distance(hull: &[Pt2], p: Pt2, d: [f64; 2]) -> f64 {
+    let n = hull.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let mut best = f64::INFINITY;
+    for i in 0..n {
+        let (a, b) = (hull[i], hull[(i + 1) % n]);
+        let (ex, ez) = (b.x - a.x, b.z - a.z);
+        let denom = d[0] * ez - d[1] * ex;
+        if denom.abs() < 1e-12 {
+            continue;
+        }
+        let (wx, wz) = (a.x - p.x, a.z - p.z);
+        let t = (wx * ez - wz * ex) / denom;
+        let u = (wx * d[1] - wz * d[0]) / denom;
+        if t >= -1e-9 && (-1e-9..=1.0 + 1e-9).contains(&u) {
+            best = best.min(t.max(0.0));
+        }
+    }
+    if best.is_finite() {
+        best
+    } else {
+        0.0
+    }
+}
+
 /// Intersection of two convex CCW polygons (Sutherland–Hodgman).
 pub fn clip_convex(subject: &[Pt2], clip: &[Pt2]) -> Vec<Pt2> {
     let mut out: Vec<Pt2> = subject.to_vec();
@@ -162,6 +191,13 @@ impl PipeCcw for Vec<Pt2> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ray_distance_in_square() {
+        let sq = rect(0.0, 0.0, 10.0, 10.0);
+        assert!((ray_exit_distance(&sq, Pt2::new(3.0, 5.0), [1.0, 0.0]) - 7.0).abs() < 1e-9);
+        assert!((ray_exit_distance(&sq, Pt2::new(3.0, 5.0), [0.0, -1.0]) - 5.0).abs() < 1e-9);
+    }
 
     #[test]
     fn clip_rects_and_disk() {

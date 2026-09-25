@@ -51,6 +51,7 @@ pub fn br_like(class: usize, seed: u64) -> Option<PackRequest> {
                 zone: Zone::Any,
                 com_offset: [0.0; 3],
                 color: None,
+                friction: None,
             }
         })
         .collect();
@@ -98,6 +99,7 @@ pub fn parse_thpack(text: &str, n: usize) -> Result<PackRequest, String> {
                 zone: Zone::Any,
                 com_offset: [0.0; 3],
                 color: None,
+                friction: None,
             });
         }
         if p == n {
@@ -114,6 +116,53 @@ pub fn parse_thpack(text: &str, n: usize) -> Result<PackRequest, String> {
         }
     }
     unreachable!()
+}
+
+/// One of every shape kind in a 20 ft container: prisms, pyramids, cones,
+/// balls, angle profiles, drums and cartons, over two delivery stops.
+pub fn shapes(seed: u64) -> PackRequest {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut q = |lo: u32, hi: u32| rng.gen_range(lo..=hi);
+    let item = |id: &str, shape: Shape, mass: f64, quantity: u32, color: &str| ItemSpec {
+        id: id.into(),
+        shape,
+        mass,
+        quantity,
+        max_load_on_top: None,
+        fragile: false,
+        floor_only: false,
+        upright_only: false,
+        allowed_orientations: None,
+        stop: 0,
+        zone: Zone::Any,
+        com_offset: [0.0; 3],
+        color: Some(color.into()),
+        friction: None,
+    };
+    let items = vec![
+        ItemSpec { stop: 2, max_load_on_top: Some(800.0), ..item("crate", Shape::Box { w: 1000.0, h: 800.0, d: 800.0 }, 250.0, q(3, 5), "#4e79a7") },
+        ItemSpec { stop: 2, ..item("beam", Shape::Prism { sides: 3, radius: 250.0, length: 2000.0 }, 120.0, q(2, 4), "#f28e2b") },
+        ItemSpec { stop: 1, max_load_on_top: Some(200.0), ..item("hex-bar", Shape::Prism { sides: 6, radius: 150.0, length: 1500.0 }, 80.0, q(3, 6), "#59a14f") },
+        ItemSpec { stop: 1, fragile: true, upright_only: true, ..item("pyramid", Shape::Pyramid { w: 600.0, d: 600.0, height: 500.0 }, 40.0, q(2, 4), "#e15759") },
+        ItemSpec { stop: 1, fragile: true, ..item("cone", Shape::Cone { radius: 250.0, height: 700.0 }, 8.0, q(4, 8), "#76b7b2") },
+        ItemSpec { stop: 2, fragile: true, ..item("ball", Shape::Sphere { radius: 220.0 }, 15.0, q(3, 6), "#edc948") },
+        ItemSpec { stop: 2, max_load_on_top: Some(300.0), ..item("angle", Shape::LProfile { a: 300.0, b: 300.0, thickness: 30.0, length: 2400.0 }, 60.0, q(3, 6), "#b07aa1") },
+        ItemSpec { stop: 1, upright_only: true, max_load_on_top: Some(400.0), ..item("drum", Shape::Cylinder { radius: 290.0, length: 880.0 }, 200.0, q(3, 6), "#9c755f") },
+        ItemSpec { stop: 1, max_load_on_top: Some(150.0), ..item("carton", Shape::Box { w: 400.0, h: 300.0, d: 300.0 }, 10.0, q(10, 20), "#ff9da7") },
+    ];
+    PackRequest {
+        container: ContainerSpec {
+            id: "20ft".into(),
+            width: 2350.0,
+            height: 2390.0,
+            depth: 5900.0,
+            max_payload: Some(28000.0),
+            axles: None,
+            cog_limits: CogLimits::default(),
+        },
+        items,
+        options: PackOptions::default(),
+    }
 }
 
 /// A realistic mixed truck load: pallets, fragile cartons, upright drums,
@@ -135,6 +184,7 @@ pub fn mixed(seed: u64) -> PackRequest {
         zone: Zone::Any,
         com_offset: [0.0; 3],
         color: None,
+        friction: None,
     };
     let items = vec![
         ItemSpec {

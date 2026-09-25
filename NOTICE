@@ -1,0 +1,9 @@
+OmniPack
+Copyright 2026 Matteo Griot
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It bundles or links third-party software under their own licenses, including:
+- parry3d (Apache-2.0), nalgebra (Apache-2.0), serde (MIT or Apache-2.0),
+  rand / rand_chacha (MIT or Apache-2.0), Tauri (MIT or Apache-2.0)
+- Babylon.js (Apache-2.0)

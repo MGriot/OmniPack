@@ -55,9 +55,10 @@ fn check(req: &PackRequest) -> Result<(), PackError> {
     Ok(())
 }
 
-/// Expands specs into units, in the default loading order: later delivery
-/// stops first (stop 0 = stays aboard, first of all), back-zone items first,
-/// front-zone last, then larger and heavier units first.
+/// Expands specs into units in loading order: delivery stops per
+/// `options.stop_order` (LIFO: later stops first; FIFO: stop 1 first; stop 0 =
+/// stays aboard and goes first either way), back-zone units before front-zone
+/// ones, floor-only units first, then `options.priority`.
 pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
     let mut out = Vec::new();
     for (si, it) in req.items.iter().enumerate() {
@@ -78,22 +79,41 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
                 stop: it.stop,
                 zone: it.zone,
                 volume: it.shape.volume(),
+                tip_deficit: shapes.iter().map(|s| placer::tip_deficit(s, &req.options.physics)).collect(),
             });
         }
     }
-    let stop_rank = |s: u32| if s == 0 { u32::MAX } else { s };
+    let opts = &req.options;
+    // Smaller rank = loaded earlier.
+    let stop_rank = |s: u32| -> i64 {
+        match (s, opts.stop_order) {
+            (0, _) => i64::MIN,
+            (s, StopOrder::Lifo) => -(s as i64),
+            (s, StopOrder::Fifo) => s as i64,
+        }
+    };
     let zone_rank = |z: Zone| match z {
         Zone::Back => 0,
         Zone::Any => 1,
         Zone::Front => 2,
     };
+    let footprint = |i: &Instance| {
+        i.shapes.iter().map(|s| s.extents[0] * s.extents[2]).fold(0.0, f64::max)
+    };
+    let height = |i: &Instance| i.shapes.first().map_or(0.0, |s| s.extents[1]);
     out.sort_by(|a, b| {
-        stop_rank(b.stop)
-            .cmp(&stop_rank(a.stop))
+        let by_priority = match opts.priority {
+            LoadPriority::Volume => b.volume.total_cmp(&a.volume).then(b.mass.total_cmp(&a.mass)),
+            LoadPriority::Mass => b.mass.total_cmp(&a.mass).then(b.volume.total_cmp(&a.volume)),
+            LoadPriority::BaseArea => footprint(b).total_cmp(&footprint(a)).then(b.mass.total_cmp(&a.mass)),
+            LoadPriority::Height => height(b).total_cmp(&height(a)).then(b.volume.total_cmp(&a.volume)),
+            LoadPriority::AsListed => std::cmp::Ordering::Equal,
+        };
+        stop_rank(a.stop)
+            .cmp(&stop_rank(b.stop))
             .then(zone_rank(a.zone).cmp(&zone_rank(b.zone)))
             .then(b.floor_only.cmp(&a.floor_only))
-            .then(b.volume.total_cmp(&a.volume))
-            .then(b.mass.total_cmp(&a.mass))
+            .then(by_priority)
             .then(a.spec.cmp(&b.spec))
     });
     out
@@ -212,17 +232,20 @@ fn finish_container(req: &PackRequest, instances: &[Instance], state: &Container
                 load_on_top: p.incoming[0],
                 support_margin: p.margin,
                 stop: inst.stop,
+                needs_chocks: p.roll == scene::Roll::NeedsChocks,
                 color: spec.color.clone(),
             }
         })
         .collect();
     let metrics = validate::compute_metrics(c, &placements);
     let violations = validate::validate(c, &req.items, &req.options, &placements);
+    let transport = validate::transport(c, &req.items, &req.options, &placements);
     ContainerPlan {
         id: format!("{}-{}", c.id, index + 1),
         size: [c.width, c.height, c.depth],
         placements,
         metrics,
         violations,
+        transport,
     }
 }

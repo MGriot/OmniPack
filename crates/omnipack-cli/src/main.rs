@@ -3,7 +3,7 @@
 //! ```text
 //! omnipack pack <request.json> [-o plan.json]
 //! omnipack gen br <class 1-7> <seed> [-o request.json]
-//! omnipack gen mixed <seed> [-o request.json]
+//! omnipack gen mixed|shapes <seed> [-o request.json]
 //! omnipack thpack <thpackN.txt> <problem 1..> [-o request.json]
 //! omnipack bench [instances-per-class]
 //! ```
@@ -99,7 +99,11 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                     let seed: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
                     generate::mixed(seed)
                 }
-                _ => return Err("gen br|mixed".into()),
+                Some("shapes") => {
+                    let seed: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
+                    generate::shapes(seed)
+                }
+                _ => return Err("gen br|mixed|shapes".into()),
             };
             write_json(&req, out)
         }
