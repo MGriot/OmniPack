@@ -48,17 +48,24 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
   - Fill patterns: walls across the width, floor layers, walls along the length, rows
     along the length, from a corner.
   - A balance slider keeps the centre of gravity near the centreline.
+  - **★ Best: search all patterns & orders:** a time-boxed search (every pattern ×
+    priority, then a genetic search over loading orders and orientations, then local
+    search). Every candidate is fully physics-checked, and you choose between up to
+    three different plans.
 - **Constraints:** fragile, max load on top, floor only, this side up, delivery stop,
   back/door zone, friction, off-centre centre of gravity, container payload, axle
   limits, centre-of-gravity limits.
 - **Physics you choose:** tick the transport legs to check, and switch sliding, tipping,
-  dynamic stacking, chocks for round items and the secured load end on or off.
+  dynamic stacking, chocks for round items and the secured load end on or off. Set the
+  friction (EN 12195-1 presets, anti-slip mats) and the largest gap that dunnage fills.
 - **Results:**
   - Fill %, mass, centre of gravity, axle loads and unloading accessibility.
   - Violations, with the reason for any unit that did not fit.
-  - Securing forces needed per transport case.
+  - Per unit: secured, held once gaps are filled, chocks, or needs lashing, with the
+    force needed per transport case and the list of gaps to fill.
 - **3D viewer:**
-  - Colour by item, stop, load against limit, stability margin or securing needed.
+  - Colour by item, stop, load against limit, stability margin, securing needed, or an
+    impact heatmap of transport forces.
   - Click legend entries to isolate groups.
   - Step through loading with ⏮ ◀ ▶ ▶| ⏭ (or ← → Home End Space), with a preview of
     the next item and where it goes.
@@ -72,6 +79,7 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 |---|---|
 | [User guide](docs/user-guide.md) | Using the app: setup, strategies, physics options, reading the results |
 | [Physics model](docs/physics-model.md) | Exactly what is checked and how, at rest and in transport |
+| [Research notes](docs/research/packing-stability.md) | Literature behind the placer, securing model and search, with measured effects |
 | [Conventions](docs/conventions.md) | Axes, units, shapes, orientations, fill patterns, JSON format |
 | [Building](docs/building.md) | Building from source, Windows installers, Android APK, signing |
 | [CHANGELOG](CHANGELOG.md) | Release history |
@@ -81,7 +89,8 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 ```
 crates/omnipack-geom   shapes, orientations, exact collision / contact / drop queries (parry3d)
 crates/omnipack-core   data model, placer, static + transport physics, validator, generators
-crates/omnipack-cli    `omnipack` command-line tool (pack, generate samples, benchmark)
+crates/omnipack-opt    search: pattern sweep, BRKGA over orders and orientations, local search
+crates/omnipack-cli    `omnipack` command-line tool (pack, optimize, generate samples, benchmark)
 app/                   Tauri 2 app: src-tauri (Rust shell) + web UI (TypeScript, Vite, Babylon.js)
 docs/                  documentation and screenshots
 release/               built installers and APK (published as GitHub release assets)
@@ -104,7 +113,8 @@ Version 0.2 is a complete rewrite of the earlier Python prototype, which is kept
 `v0-legacy` tag. Next on the list:
 
 - **Rigid-body simulation** (Rapier3D) with replay.
-- **An optimizer** (BRKGA / NSGA-II) that offers several different plans to choose from.
+- **More search:** NSGA-II Pareto fronts and block building on top of the current
+  BRKGA search.
 - **Arbitrary meshes:** imported items with any shape.
 - **A learned ranking model** that speeds up the search.
 

@@ -145,3 +145,10 @@ h3 .spacer { flex: 1; }
   .next { max-width: 100%; white-space: normal; }
   button, select, input { font-size: 14px; }
 }
+
+/* "Best" search mode */
+.search-box { border: 1px solid var(--accent); border-radius: var(--radius); padding: 6px 8px; margin: 6px 0; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.search-picker { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.search-picker .pick { text-align: left; font-size: 12px; line-height: 1.35; }
+.search-picker .pick.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); }
+details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin: 4px 0; }

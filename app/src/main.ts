@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -13,11 +14,16 @@ import {
   type FillBias,
   type ItemSpec,
   type LoadPriority,
+  type Objective,
+  type OptimizeResult,
   type PackRequest,
   type PackResult,
   type Placement,
   type RenderMesh,
+  type Score,
   type Shape,
+  type SearchPhase,
+  type SearchProgress,
   type SecuringClass,
   type ShapeKind,
   type StopOrder,
@@ -36,6 +42,30 @@ let current = 0;
 let selected: Placement | null = null;
 let playing: number | null = null;
 let presets: TransportCase[] = [ROAD];
+/** "Best" fill mode: search patterns, orders and orientations (omnipack-opt). */
+const search = loadSearchSettings();
+/** Plans returned by the last search, best first; `result` is one of them. */
+let searchResult: OptimizeResult | null = null;
+let searchPick = 0;
+let searching = false;
+
+function loadSearchSettings(): { enabled: boolean; budget: number; securing: number } {
+  const fallback = { enabled: false, budget: /Android/i.test(navigator.userAgent) ? 8 : 15, securing: 0.35 };
+  try {
+    return { ...fallback, ...JSON.parse(localStorage.getItem("omnipack.search") ?? "{}") };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveSearchSettings() {
+  try {
+    localStorage.setItem("omnipack.search", JSON.stringify(search));
+  } catch {
+    // Storage may be unavailable (private mode); the setting just isn't remembered.
+  }
+}
+
 /** Legend keys (item ids, stops, …) the user isolated; empty = show all. */
 const focusKeys = new Set<string>();
 const meshCache = new Map<string, RenderMesh>();
@@ -356,20 +386,35 @@ function renderEditor() {
         () => o.priority,
         (v) => (o.priority = v),
       ),
-      select<FillBias>(
+      select<FillBias | "best">(
         "Fill pattern",
         [
+          ["best", "★ Best: search all patterns & orders"],
           ["wall_building", "Walls across width"],
           ["floor_first", "Floor layers first"],
           ["longitudinal", "Walls along length"],
           ["lateral", "Floor rows along length"],
           ["corner_first", "From a corner"],
         ],
-        () => o.bias,
-        (v) => (o.bias = v),
+        () => (search.enabled ? "best" : o.bias),
+        (v) => {
+          search.enabled = v === "best";
+          if (v !== "best") o.bias = v;
+          saveSearchSettings();
+          renderEditor();
+        },
       ),
       num("Max containers", () => o.max_containers, (v) => (o.max_containers = Math.max(1, Math.round(v ?? 1))), { min: 1, step: "1" }),
     ),
+    search.enabled
+      ? h(
+          "div",
+          { class: "search-box" },
+          h("p", { class: "hint" }, "Tries every fill pattern and load priority, then evolves loading orders and orientations (genetic search + local search). Every plan gets the full physics check; stops, zones and floor-only rules are kept."),
+          slider("Search time", 5, 120, 5, () => search.budget, (v) => ((search.budget = v), saveSearchSettings()), (v) => `${v.toFixed(0)} s`),
+          slider("Prefer", 0, 1, 0.05, () => search.securing, (v) => ((search.securing = v), saveSearchSettings()), (v) => (v < 0.2 ? "max. density" : v > 0.8 ? "least securing" : "balanced")),
+        )
+      : "",
     h("p", { class: "hint" }, o.stop_order === "fifo"
       ? "FIFO fills from the door towards the back, so the units loaded first are unloaded first (side loading / drive-through)."
       : "LIFO fills from the back wall towards the door; the first stop ends up at the door (rear-door vehicles)."),
@@ -561,6 +606,40 @@ function describeIssue(i: TransportIssue): string {
   return `${i.item}: ${i.kind} ${DIR_LABEL[i.direction!]} at ${i.acceleration} g → secure with ≥ ${force} kN`;
 }
 
+function scoreLine(s: Score): string {
+  const lash = s.lashing_units ? `${s.lashing_units} to lash (${fmt(s.lashing_kn, 1)} kN)` : "nothing to lash";
+  return `${fmt(s.volume_utilization * 100, 1)} % vol · ${s.containers} cont. · ${lash} · dunnage ${fmt(s.dunnage_mm / 1000, 2)} m`;
+}
+
+/** The distinct plans a search returned, with the plain placer for comparison. */
+function searchPicker(r: OptimizeResult): HTMLElement {
+  return h(
+    "div",
+    { class: "search-picker" },
+    h("p", { class: "hint" }, `Search: ${r.evaluated} plans in ${fmt(r.elapsed_ms / 1000, 1)} s. Your settings alone: ${scoreLine(r.baseline)}`),
+    ...r.solutions.map((s, i) =>
+      h(
+        "button",
+        {
+          class: `pick${i === searchPick ? " active" : ""}`,
+          title: s.label,
+          onclick: async () => {
+            searchPick = i;
+            result = s.result;
+            current = 0;
+            selected = null;
+            focusKeys.clear();
+            await showPlan();
+            renderResults();
+          },
+        },
+        h("b", {}, `Plan ${i + 1}`),
+        ` ${scoreLine(s.score)}`,
+      ),
+    ),
+  );
+}
+
 function renderResults() {
   const panel = $("results");
   panel.replaceChildren();
@@ -586,6 +665,7 @@ function renderResults() {
       dunnage ? h("span", { class: "badge" }, `${dunnage} held once gaps are filled`) : null,
       chocks ? h("span", { class: "badge warn" }, `${chocks} need chocks`) : null,
     ),
+    searchResult ? searchPicker(searchResult) : "",
     stat("Units packed", `${r.packed_units} / ${r.requested_units}`),
     stat("Containers", String(r.containers.length)),
     stat("Volume used", `${fmt(r.volume_utilization * 100, 1)} %`),
@@ -777,11 +857,64 @@ function setStatus(msg: string, kind: "" | "ok" | "bad" = "") {
   s.className = `status ${kind}`;
 }
 
+function objective(): Objective {
+  // 0 = density only, 1 = strongly avoid lashing and dunnage.
+  const t = search.securing;
+  return { density: 1, securing: 2 * t, dunnage: 0.6 * t, stability: 1 };
+}
+
+async function runSearch() {
+  const buttons = [$<HTMLButtonElement>("pack"), $<HTMLButtonElement>("pack-mobile")];
+  const labels = buttons.map((b) => b.textContent);
+  searching = true;
+  for (const b of buttons) b.textContent = "Stop ■";
+  stopPlaying();
+  const t0 = performance.now();
+  const phaseName: Record<SearchPhase, string> = { sweep: "trying every pattern", evolve: "evolving orders", polish: "polishing" };
+  setStatus(`Searching (${search.budget} s)…`);
+  const unlisten = await listen<SearchProgress>("optimize-progress", (e) => {
+    const p = e.payload;
+    const left = Math.max(0, search.budget - (performance.now() - t0) / 1000);
+    setStatus(`${phaseName[p.phase]}: ${p.evaluated} plans, best ${fmt(p.best.volume_utilization * 100, 1)} % vol, ${p.best.lashing_units} to lash · ${left.toFixed(0)} s left`);
+  });
+  try {
+    const options = { budget_ms: search.budget * 1000, objective: objective(), keep: 3 };
+    const r = await invoke<OptimizeResult>("optimize_request", { request: req, options });
+    searchResult = r;
+    searchPick = 0;
+    result = r.solutions[0].result;
+    stale = false;
+    current = 0;
+    selected = null;
+    focusKeys.clear();
+    const best = r.solutions[0].score;
+    setStatus(
+      `${r.cancelled ? "Stopped" : "Done"}: ${r.evaluated} plans in ${fmt(r.elapsed_ms / 1000, 1)} s · best ${fmt(best.volume_utilization * 100, 1)} % vol, ${best.lashing_units} to lash`,
+      result.unpacked.length === 0 ? "ok" : "bad",
+    );
+    showTab("view");
+    await showPlan();
+    renderResults();
+  } catch (e) {
+    setStatus(String(e), "bad");
+  } finally {
+    unlisten();
+    searching = false;
+    buttons.forEach((b, i) => (b.textContent = labels[i]));
+  }
+}
+
 async function runPack() {
+  if (searching) {
+    await invoke("cancel_optimize");
+    return;
+  }
   if (!req.items.length) {
     setStatus("Add some items first.", "bad");
     return;
   }
+  if (search.enabled) return runSearch();
+  searchResult = null;
   const btn = $<HTMLButtonElement>("pack");
   const btnMobile = $<HTMLButtonElement>("pack-mobile");
   btn.disabled = btnMobile.disabled = true;

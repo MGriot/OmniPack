@@ -43,10 +43,13 @@ means towards the front wall at `z = 0`.
 
 - **Blocking.** An item is blocked in a direction by a wall, by the secured load
   end (`secure_load_end`: a locking bar or gate at the open face of the load), or
-  by a touching neighbour that is itself blocked (chains). For tipping, the
+  by a same-layer neighbour that is itself blocked (chains). Gaps up to
+  `max_fill_gap` (default 50 mm) count as filled with dunnage or airbags; every
+  gap a blocking chain relies on is listed in the report. For tipping, the
   blocker must reach above the item's centre of gravity.
 - **Sliding.** Unblocked items slide if `a > μ · c_z,min`. μ is the lowest
-  friction among the item and its supports (per item, or `default_friction`).
+  friction among the item, the items it rests on and, if set, `floor_friction`.
+  `anti_slip_mats` raises every contact to at least 0.6.
   Required securing force = `m_column · g · (a − μ · c_z,min)`.
 - **Tipping.** The item plus everything resting on it tips if
   `a · h > c_z,min · e`. Here `h` is the height of the combined centre of gravity
@@ -54,6 +57,14 @@ means towards the front wall at `z = 0`.
   support-polygon edge in that direction.
 - **Dynamic stacking** (optional): load on top × `c_z,max` must stay within
   `max_load_on_top`.
+
+Every unit gets a **securing class**: secured, held once gaps are filled
+(dunnage), chocks, lashing (a sliding or tipping force remains), or stack
+overloaded. It also gets an **impact**: the force it must pass on to its
+blocker in the worst case and direction. That is its own excess over friction,
+`m·g·(a − μ·c_z,min)`, plus everything the units behind it push into it along
+the blocking chain. The units against the front wall under braking carry the sum
+of their row. The app shows it as the impact heatmap.
 
 The results are listed per case with the securing force needed (kN). They do not
 make the plan invalid: they tell you what to lash, block or fill with dunnage.

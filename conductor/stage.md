@@ -22,7 +22,7 @@ was replaced:
 | M2 | Tauri 2 app (Windows MSI + Android APK) running M1 with the 3D viewer | **done** |
 | M2b | Shapes (sphere, cone, pyramid, prism, L-profile), transport physics profiles (road/rail/sea), FIFO/LIFO + load priorities, timeline stepping, legend isolation, phone layout | **done** |
 | M3 | Rapier3D dynamic simulation + replay (quasi-static EN 12195-1 checks already in M2b) | todo |
-| M4 | BRKGA / NSGA-II Pareto optimizer, beam + local search, diverse solutions | todo |
+| M4 | BRKGA / NSGA-II Pareto optimizer, beam + local search, diverse solutions | **partly done**: sweep + BRKGA + local search, 3 distinct plans (`omnipack-opt`); NSGA-II and block building open |
 | M5 | Any-shape items: mesh import, convex decomposition, stable poses | todo |
 | M6 | ONNX learned candidate ranker (on only if benchmarks improve) | todo |
 
@@ -32,9 +32,15 @@ BR1–BR7-style average volume utilization about 69–79% in under 0.2 s per
 instance, with every plan passing independent validation. This is the
 baseline M4 has to beat.
 
+## M4 status (2026-09-25, `omnipack bench 2 --optimize 5`)
+Placer with extreme-point projection and contact/blocking tie-breaks: BR1–7
+average 79.0% (was 75.9%). The search (5 s per instance) reaches 83.4%, and
+every plan still validates. See `docs/research/packing-stability.md`.
+
 ## How to verify
 ```
 cargo test --workspace
 PROPTEST_CASES=1000 cargo test -p omnipack-core --test properties
 cargo run --release -p omnipack-cli -- bench 5
+cargo run --release -p omnipack-cli -- bench 2 --optimize 5
 ```

@@ -232,6 +232,9 @@ pub(crate) fn accel(case: &TransportCase, d: Direction) -> f64 {
     }
 }
 
+/// What holds one side: a wall or load end (`None`) or a neighbour, and the gap to it.
+type Link = Option<(Option<usize>, f64)>;
+
 /// What holds each item in each of the four directions.
 struct Blocking {
     /// Held against sliding by a wall or a chain of neighbours.
@@ -240,9 +243,8 @@ struct Blocking {
     tip: Vec<[bool; 4]>,
     /// Neighbours facing each side within the fill gap, with the gap (mm).
     facing: Vec<[Vec<(usize, f64)>; 4]>,
-    /// The link that holds each blocked side against sliding: a wall or load
-    /// end (`None`) or a neighbour, and the gap to it.
-    via: Vec<[Option<(Option<usize>, f64)>; 4]>,
+    /// The link that holds each blocked side against sliding.
+    via: Vec<[Link; 4]>,
 }
 
 impl Blocking {
@@ -274,7 +276,7 @@ fn blocking(a: &Analysis, size: [f64; 3], phys: &PhysicsOptions) -> Blocking {
     let (load_front, load_back) = a.bodies.iter().fold((f64::MAX, f64::MIN), |(f, b), body| (f.min(body.min[2]), b.max(body.max()[2])));
     let mut slide = vec![[false; 4]; n];
     let mut tip = vec![[false; 4]; n];
-    let mut via: Vec<[Option<(Option<usize>, f64)>; 4]> = vec![[None; 4]; n];
+    let mut via: Vec<[Link; 4]> = vec![[None; 4]; n];
     let mut facing: Vec<[Vec<(usize, f64)>; 4]> = vec![Default::default(); n];
 
     // Walls (and the secured load end).

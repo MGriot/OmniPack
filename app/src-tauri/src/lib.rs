@@ -3,10 +3,13 @@
 
 use omnipack_core::{generate, pack, PackRequest, PackResult, TransportCase};
 use omnipack_geom::{Orientation, OrientedShape, RenderMesh, Shape};
+use omnipack_opt::{optimize, OptimizeOptions, OptimizeResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -15,6 +18,33 @@ async fn pack_request(request: PackRequest) -> CmdResult<PackResult> {
     tauri::async_runtime::spawn_blocking(move || pack(&request).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Set by `cancel_optimize`; the running search returns its best plans so far.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Searches fill patterns, loading orders and orientations for the best plans
+/// (see `omnipack_opt`). Emits `optimize-progress` events while it runs.
+#[tauri::command]
+async fn optimize_request(app: AppHandle, request: PackRequest, options: OptimizeOptions) -> CmdResult<OptimizeResult> {
+    CANCEL.store(false, Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut last = Instant::now();
+        optimize(&request, &options, &CANCEL, &mut |p| {
+            if last.elapsed() >= Duration::from_millis(150) {
+                last = Instant::now();
+                let _ = app.emit("optimize-progress", p);
+            }
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_optimize() {
+    CANCEL.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -107,6 +137,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             pack_request,
+            optimize_request,
+            cancel_optimize,
             sample_request,
             transport_presets,
             shape_mesh,

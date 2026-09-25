@@ -4,6 +4,37 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [Unreleased]
+
+### Fixed
+- **"Everything needs securing":** blocking chains required faces within 0.05 mm, so
+  any real gap broke them and practically every unit was reported as unsecured. Gaps up
+  to a configurable size (default 50 mm) now count as filled with dunnage, and the
+  gaps the plan relies on are listed.
+
+### Added
+- **Securing classes per unit:** secured, held once gaps are filled, chocks, needs
+  lashing, stack overloaded. The legend lets you isolate each class.
+- **Impact heatmap:** the transport force each unit must pass on to its blocker,
+  including what the units behind push into it.
+- **Friction options:** EN 12195-1 friction presets, a floor friction value, and
+  anti-slip mats.
+- **★ Best fill mode (`omnipack-opt`):** a time-boxed search.
+  - It sweeps every pattern × priority, runs a BRKGA over loading orders and
+    orientations, then a local search.
+  - It returns up to three distinct plans. You can stop it early and keep the best
+    found so far.
+  - Also available on the command line as `omnipack optimize`.
+- **Placer improvements:** extreme-point projection onto neighbouring items, plus
+  contact-area, blocking, dead-gap and flat-top tie-breaks. BR1–7 average utilization
+  rose from 75.9% to 79.0%.
+- **Docs:** research notes in `docs/research/packing-stability.md`.
+- **Bench:** `omnipack bench` reports the units needing lashing and the dunnage.
+  `--optimize <s>` compares against the search.
+
+### Removed
+- Legacy leftovers from the repository root. The history is kept in tag `v0-legacy`.
+
 ## [0.2.0] - 2026-09-25
 
 The complete rewrite: one Rust engine for Windows and Android, with exact geometry and

@@ -109,7 +109,8 @@
       "id": "R11",
       "milestone": "M4",
       "title": "omnipack-opt: BRKGA decoder over the placer, NSGA-II Pareto set, time budgets",
-      "status": "todo"
+      "status": "partial",
+      "note": "Sweep + BRKGA + local search + time budget + 3 distinct plans done (2026-09-25); NSGA-II Pareto set and block building open"
     },
     {
       "id": "R12",

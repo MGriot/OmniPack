@@ -274,3 +274,60 @@ export function newItem(n: number): ItemSpec {
     friction: null,
   };
 }
+
+// ---------- search (omnipack-opt) ----------
+
+export interface Objective {
+  density: number;
+  securing: number;
+  dunnage: number;
+  stability: number;
+}
+
+export interface OptimizeOptions {
+  budget_ms: number;
+  max_evaluations: number;
+  population: number;
+  elite_fraction: number;
+  mutant_fraction: number;
+  inherit: number;
+  keep: number;
+  objective: Objective;
+  threads: number;
+  seed: number;
+}
+
+export interface Score {
+  all_packed: boolean;
+  packed_units: number;
+  containers: number;
+  value: number;
+  volume_utilization: number;
+  lashing_units: number;
+  lashing_kn: number;
+  dunnage_mm: number;
+  min_margin: number | null;
+}
+
+export interface Solution {
+  label: string;
+  score: Score;
+  result: PackResult;
+}
+
+export interface OptimizeResult {
+  solutions: Solution[];
+  baseline: Score;
+  evaluated: number;
+  elapsed_ms: number;
+  cancelled: boolean;
+}
+
+export type SearchPhase = "sweep" | "evolve" | "polish";
+
+export interface SearchProgress {
+  phase: SearchPhase;
+  evaluated: number;
+  elapsed_ms: number;
+  best: Score;
+}

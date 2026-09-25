@@ -2297,6 +2297,7 @@ version = "0.2.0"
 dependencies = [
  "omnipack-core",
  "omnipack-geom",
+ "omnipack-opt",
  "serde",
  "serde_json",
  "tauri",

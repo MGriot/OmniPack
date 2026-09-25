@@ -57,6 +57,16 @@ a 20 ft container, and benchmark sets.
   listed.
 - **Fill pattern:** the order in which space is used. Choose walls across the width, full
   floor layers, walls along the length, rows along the length, or growing from a corner.
+- **★ Best: search all patterns & orders:** instead of one pattern, OmniPack searches.
+  It tries every fill pattern and load priority, then evolves loading orders and
+  orientations (a genetic search followed by local search). Every candidate gets the full
+  physics check, and stops, zones and floor-only rules are always kept.
+  - **Search time** (5–120 s): the search keeps the best plans found in that time.
+    **Pack** turns into **Stop ■** while it runs; stopping keeps what was found so far.
+  - **Prefer:** slide towards *max. density* to fill the most volume, or towards
+    *least securing* to favour plans that need less lashing and dunnage.
+  - You get up to three clearly different plans to choose from in **Results**, next to
+    what your own settings give.
 - **Stability margin:** how far each centre of gravity must stay inside its support area.
   0 means "just doesn't tip"; higher values are safer.
 - **Minimum support area:** the share of a flat bottom that must rest on something.
@@ -80,16 +90,25 @@ Under **Physics & transport**:
 - **Chocks for round items:** lying drums and balls are held with wedges. Switch this off
   to require them to be wedged in by walls or neighbours instead.
 - **Load end secured:** a locking bar, gate or dunnage closes the open end of the load.
-- **Default friction μ:** 0.4 is typical for wood on wood; anti-slip mats give 0.6 or more.
+- **Anti-slip mats:** rubber mats under every item and between layers (μ ≥ 0.6). They
+  hold 0.5 g sideways on the road, but not 0.8 g braking.
+- **Cargo on floor:** typical friction values from EN 12195-1 (sawn-wood pallet on
+  plywood 0.45, plastic pallet 0.2, …). Picking one sets **Default friction μ**.
+- **Dunnage fills gaps up to** (mm): gaps up to this size between items, or between an
+  item and a wall, count as filled with dunnage or airbags and block like direct contact.
+  0 means only touching faces block. With the common μ 0.4, friction alone never holds
+  cargo on the road, so blocking decides almost everything. If this is too small for your
+  practice, nearly every unit will show as needing lashing.
 
 ## 5. Pack and read the results
 
 Press **Pack** (or Ctrl+Enter). The badges at the top of **Results** summarise the plan:
 
 - **✓ Stable at rest**, or **✗ Violations found** with the list of problems.
-- **Securing:** either **Secured for transport**, or **N units need securing**. Each
+- **Securing:** either **Secured for transport**, or **N units need lashing**. Each
   selected transport leg then lists what would slide or tip, in which direction, and the
   force (kN) the lashing or blocking must provide. The largest forces are listed first.
+  **Fill N gaps with dunnage** lists the gaps the blocking relies on, with their width.
 - **Chocks:** how many round items need wedges.
 
 Below the badges you'll find fill %, cargo mass, centre of gravity, axle loads,
@@ -100,8 +119,14 @@ another stop's cargo), and any units that could not be packed, with the reason.
 
 - **Rotate** with a left drag or one finger, **zoom** with the wheel or a pinch, **pan**
   with a right drag. ⟲ resets the camera.
-- **Colour by** item, delivery stop, load against limit, stability margin, or securing
-  needed.
+- **Colour by** item, delivery stop, load against limit, stability margin, securing
+  needed, or the impact heatmap.
+  - *Securing needed:* red = needs lashing, purple = stack overloaded, orange = chocks,
+    blue = held once the listed gaps are filled, green = secured.
+  - *Impact heatmap:* the transport force each unit must pass on to whatever blocks it,
+    in the worst transport leg and direction. This is its own push plus everything
+    behind it in the blocking chain. Green is low, red is the highest in this container.
+    The four bands can be isolated like any legend entry.
 - **Legend:** click entries to show only those groups (the others fade out); click again
   to remove one; **Show all** resets.
 - **Timeline:** use ⏮ ◀ ▶ ▶| ⏭ or the keys ← → Home End Space to go through the load
