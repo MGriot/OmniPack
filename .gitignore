@@ -10,28 +10,9 @@ app/dist/
 app/src-tauri/gen/schemas/
 app/src-tauri/target/
 
-# Python (ml/ tooling)
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
-*.egg-info/
-
-# Legacy build leftovers still on disk (code lives in tag v0-legacy)
-/build/
-/dist/
-/logs/
-/native/
-/native_c/
-/android_app/
-/src/
-/tests/
-/scripts/
-/.briefcase/
-uv.lock
-
 # Local outputs
 /out/
+failing-request.json
 
 # Release binaries are published as GitHub release assets, not committed
 /release/*.msi

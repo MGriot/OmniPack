@@ -115,4 +115,4 @@ physics.
 - **Single Container Optimization**: Refined `MultiContainerEngine` to prioritize filling the primary container and suppress empty overflow suggestions.
 
 ---
-*For granular task history, see individual files in the `changelog/` directory.*
+*Pre-rebuild history lives in tag `v0-legacy`.*
