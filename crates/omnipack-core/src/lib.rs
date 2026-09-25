@@ -55,6 +55,23 @@ fn check(req: &PackRequest) -> Result<(), PackError> {
     Ok(())
 }
 
+/// Loading constraints of a unit as a sort key (smaller = loaded earlier):
+/// delivery stop, zone, then floor-only units first. Any order that keeps this
+/// key non-decreasing respects the loading strategy.
+pub fn load_group(opts: &PackOptions, i: &Instance) -> (i64, u8, bool) {
+    let stop = match (i.stop, opts.stop_order) {
+        (0, _) => i64::MIN,
+        (s, StopOrder::Lifo) => -(s as i64),
+        (s, StopOrder::Fifo) => s as i64,
+    };
+    let zone = match i.zone {
+        Zone::Back => 0,
+        Zone::Any => 1,
+        Zone::Front => 2,
+    };
+    (stop, zone, !i.floor_only)
+}
+
 /// Expands specs into units in loading order: delivery stops per
 /// `options.stop_order` (LIFO: later stops first; FIFO: stop 1 first; stop 0 =
 /// stays aboard and goes first either way), back-zone units before front-zone
@@ -80,23 +97,11 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
                 zone: it.zone,
                 volume: it.shape.volume(),
                 tip_deficit: shapes.iter().map(|s| placer::tip_deficit(s, &req.options.physics)).collect(),
+                orient_pref: None,
             });
         }
     }
     let opts = &req.options;
-    // Smaller rank = loaded earlier.
-    let stop_rank = |s: u32| -> i64 {
-        match (s, opts.stop_order) {
-            (0, _) => i64::MIN,
-            (s, StopOrder::Lifo) => -(s as i64),
-            (s, StopOrder::Fifo) => s as i64,
-        }
-    };
-    let zone_rank = |z: Zone| match z {
-        Zone::Back => 0,
-        Zone::Any => 1,
-        Zone::Front => 2,
-    };
     let footprint = |i: &Instance| {
         i.shapes.iter().map(|s| s.extents[0] * s.extents[2]).fold(0.0, f64::max)
     };
@@ -109,12 +114,7 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
             LoadPriority::Height => height(b).total_cmp(&height(a)).then(b.volume.total_cmp(&a.volume)),
             LoadPriority::AsListed => std::cmp::Ordering::Equal,
         };
-        stop_rank(a.stop)
-            .cmp(&stop_rank(b.stop))
-            .then(zone_rank(a.zone).cmp(&zone_rank(b.zone)))
-            .then(b.floor_only.cmp(&a.floor_only))
-            .then(by_priority)
-            .then(a.spec.cmp(&b.spec))
+        load_group(opts, a).cmp(&load_group(opts, b)).then(by_priority).then(a.spec.cmp(&b.spec))
     });
     out
 }

@@ -11,5 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 omnipack-core.workspace = true
+omnipack-opt.workspace = true
 serde.workspace = true
 serde_json.workspace = true

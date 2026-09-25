@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/omnipack-geom", "crates/omnipack-core", "crates/omnipack-cli", "app/src-tauri"]
+members = ["crates/omnipack-geom", "crates/omnipack-core", "crates/omnipack-opt", "crates/omnipack-cli", "app/src-tauri"]
 
 [workspace.package]
 version = "0.2.0"
@@ -19,6 +19,7 @@ thiserror = "1"
 proptest = "1"
 omnipack-geom = { path = "crates/omnipack-geom" }
 omnipack-core = { path = "crates/omnipack-core" }
+omnipack-opt = { path = "crates/omnipack-opt" }
 
 [profile.release]
 lto = "thin"

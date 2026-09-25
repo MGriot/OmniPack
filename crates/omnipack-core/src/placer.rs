@@ -31,11 +31,17 @@ pub struct Instance {
     /// Per orientation: how far (in g) the worst selected transport case
     /// exceeds what the item resists against tipping on its own base.
     pub tip_deficit: Vec<f64>,
+    /// Orientation the search prefers for this unit; others cost
+    /// [`ORIENT_PREF_WEIGHT`] in the score.
+    pub orient_pref: Option<usize>,
 }
 
 /// Score weight per g of tipping deficit: strong enough to lay slender items
 /// down when the physics options ask for transport safety.
 const TIP_WEIGHT: f64 = 0.3;
+/// Score penalty for not using a unit's preferred orientation: about the
+/// size of the contact terms, so the preference steers without forcing.
+pub const ORIENT_PREF_WEIGHT: f64 = 5e-3;
 
 /// Tipping deficit of `shape` standing alone on its bottom face under the
 /// selected transport cases, in g (0 = resists every case by itself).
@@ -60,6 +66,13 @@ pub fn tip_deficit(shape: &OrientedShape, physics: &crate::model::PhysicsOptions
         }
     }
     worst.max(0.0)
+}
+
+fn orient_penalty(inst: &Instance, orient: usize) -> f64 {
+    match inst.orient_pref {
+        Some(p) if p != orient => ORIENT_PREF_WEIGHT,
+        _ => 0.0,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -202,7 +215,7 @@ impl<'a> ContainerState<'a> {
         let [w, _, d] = shape.extents;
         let nz = self.depth_term(inst, z, d);
         let [wx, wy, wz] = self.opts.bias.weights();
-        let mut s = wx * x / c.width + wy * y / c.height + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient];
+        let mut s = wx * x / c.width + wy * y / c.height + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] + orient_penalty(inst, orient);
         if self.opts.balance_weight > 0.0 {
             let cx = x + shape.com_from_min[0];
             let m = self.mass + inst.mass;
@@ -218,7 +231,7 @@ impl<'a> ContainerState<'a> {
         let c = self.spec;
         let nz = self.depth_term(inst, z, inst.shapes[orient].extents[2]);
         let [wx, _, wz] = self.opts.bias.weights();
-        wx * x / c.width + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] - self.max_tie_break()
+        wx * x / c.width + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] + orient_penalty(inst, orient) - self.max_tie_break()
     }
 
     /// Resting height, and whether the item would then sit on the top of a

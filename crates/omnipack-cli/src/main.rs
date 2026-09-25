@@ -5,20 +5,23 @@
 //! omnipack gen br <class 1-7> <seed> [-o request.json]
 //! omnipack gen mixed|shapes <seed> [-o request.json]
 //! omnipack thpack <thpackN.txt> <problem 1..> [-o request.json]
-//! omnipack bench [instances-per-class]
+//! omnipack optimize <request.json> [--budget seconds] [--evals count] [-o plan.json]
+//! omnipack bench [instances-per-class] [--optimize seconds]
 //!   (OMNIPACK_WEIGHTS=contact,blocking,dead_gap,flat_top overrides the score weights)
 //! ```
 
 use omnipack_core::generate;
-
 use omnipack_core::{pack, PackRequest, PackResult, SecuringClass};
+use omnipack_opt::{optimize, OptimizeOptions, Score};
 use std::process::ExitCode;
+use std::sync::atomic::AtomicBool;
 
 fn usage() -> ExitCode {
     eprintln!(
         "usage:\n  omnipack pack <request.json> [-o plan.json]\n  omnipack gen br <class 1-7> <seed> [-o request.json]\n  \
          omnipack gen mixed <seed> [-o request.json]\n  omnipack thpack <thpackN.txt> <problem> [-o request.json]\n  \
-         omnipack bench [instances-per-class]"
+         omnipack optimize <request.json> [--budget seconds] [--evals count] [-o plan.json]
+  \n         omnipack bench [instances-per-class] [--optimize seconds]"
     );
     ExitCode::from(2)
 }
@@ -75,9 +78,59 @@ fn summary(r: &PackResult) -> String {
     s
 }
 
+fn take_flag(args: &mut Vec<String>, flag: &str) -> Option<String> {
+    let i = args.iter().position(|a| a == flag)?;
+    let v = args.get(i + 1).cloned();
+    args.drain(i..(i + 2).min(args.len()));
+    v
+}
+
+fn score_line(s: &Score) -> String {
+    format!(
+        "{} units, {} container(s), {:.1}% vol, {} need lashing ({:.1} kN), dunnage {:.0} mm, min margin {:.1} mm, value {:.2}",
+        s.packed_units,
+        s.containers,
+        s.volume_utilization * 100.0,
+        s.lashing_units,
+        s.lashing_kn,
+        s.dunnage_mm,
+        s.min_margin,
+        s.value
+    )
+}
+
+fn search_options(args: &mut Vec<String>) -> Result<OptimizeOptions, String> {
+    let mut o = OptimizeOptions::default();
+    if let Some(b) = take_flag(args, "--budget") {
+        o.budget_ms = (b.parse::<f64>().map_err(|_| "--budget <seconds>")? * 1000.0) as u64;
+    }
+    if let Some(e) = take_flag(args, "--evals") {
+        o.max_evaluations = e.parse().map_err(|_| "--evals <count>")?;
+    }
+    Ok(o)
+}
+
 fn run(mut args: Vec<String>) -> Result<(), String> {
     let out = take_output(&mut args);
+    let bench_budget = take_flag(&mut args, "--optimize");
+    let search = search_options(&mut args)?;
     match args.first().map(String::as_str) {
+        Some("optimize") => {
+            let path = args.get(1).ok_or("missing request path")?;
+            let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+            let req: PackRequest = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+            let cancel = AtomicBool::new(false);
+            let r = optimize(&req, &search, &cancel, &mut |p| eprint!("\r{:?}: {} plans, best {:.2}   ", p.phase, p.evaluated, p.best.value)).map_err(|e| e.to_string())?;
+            eprintln!("\n{} plans in {} ms", r.evaluated, r.elapsed_ms);
+            eprintln!("  your settings: {}", score_line(&r.baseline));
+            for (i, s) in r.solutions.iter().enumerate() {
+                eprintln!("  #{} ({}): {}", i + 1, s.label, score_line(&s.score));
+            }
+            if out.is_some() {
+                write_json(&r.solutions[0].result, out)?;
+            }
+            Ok(())
+        }
         Some("pack") => {
             let path = args.get(1).ok_or("missing request path")?;
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
@@ -117,10 +170,13 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         Some("bench") => {
             let per_class: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
-            println!("class  instances  avg_util%  min_util%  lashing%  dunnage_mm  avg_ms  all_valid");
+            let opt_budget: Option<f64> = bench_budget.map(|b| b.parse().map_err(|_| "--optimize <seconds>")).transpose()?;
+            print!("class  instances  avg_util%  min_util%  lashing%  dunnage_mm  avg_ms  all_valid");
+            println!("{}", if opt_budget.is_some() { "  opt_util%  opt_lashing%  opt_valid" } else { "" });
             for class in 1..=7 {
                 let (mut sum, mut min, mut ms, mut valid) = (0.0, f64::INFINITY, 0u64, true);
                 let (mut lashing, mut units, mut dunnage) = (0usize, 0usize, 0.0);
+                let (mut opt_util, mut opt_lash, mut opt_units, mut opt_valid) = (0.0, 0usize, 0usize, true);
                 for seed in 1..=per_class {
                     let mut req = generate::br_like(class, seed).unwrap();
                     req.options.max_containers = 1;
@@ -139,8 +195,16 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                         lashing += c.placements.iter().filter(|p| p.securing >= SecuringClass::Lashing).count();
                         dunnage += c.transport.iter().flat_map(|t| &t.gaps).map(|g| g.gap_mm).sum::<f64>();
                     }
+                    if let Some(secs) = opt_budget {
+                        let o = OptimizeOptions { budget_ms: (secs * 1000.0) as u64, ..search.clone() };
+                        let best = optimize(&req, &o, &AtomicBool::new(false), &mut |_| {}).map_err(|e| e.to_string())?.solutions.remove(0);
+                        opt_util += best.result.containers.first().map_or(0.0, |c| c.metrics.volume_utilization);
+                        opt_lash += best.score.lashing_units;
+                        opt_units += best.score.packed_units;
+                        opt_valid &= best.result.is_valid();
+                    }
                 }
-                println!(
+                print!(
                     "BR{class:<4} {per_class:>9}  {:>9.2}  {:>9.2}  {:>8.1}  {:>10.0}  {:>6}  {valid}",
                     sum / per_class as f64 * 100.0,
                     min * 100.0,
@@ -148,6 +212,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                     dunnage / per_class as f64,
                     ms / per_class
                 );
+                if opt_budget.is_some() {
+                    print!("  {:>9.2}  {:>12.1}  {opt_valid}", opt_util / per_class as f64 * 100.0, opt_lash as f64 / opt_units.max(1) as f64 * 100.0);
+                }
+                println!();
             }
             Ok(())
         }

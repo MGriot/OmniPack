@@ -1,0 +1,81 @@
+//! The search must only ever return valid plans, never lose to the plain
+//! placer, and be reproducible when capped by evaluations.
+
+use omnipack_core::{generate, pack, PackRequest};
+use omnipack_opt::{difference, optimize, OptimizeOptions, Score, MIN_DIFFERENCE};
+use proptest::prelude::*;
+use std::sync::atomic::AtomicBool;
+
+fn capped(evals: usize) -> OptimizeOptions {
+    OptimizeOptions { budget_ms: 600_000, max_evaluations: evals, population: 12, threads: 4, ..Default::default() }
+}
+
+fn run(req: &PackRequest, o: &OptimizeOptions) -> omnipack_opt::OptimizeResult {
+    optimize(req, o, &AtomicBool::new(false), &mut |_| {}).unwrap()
+}
+
+#[test]
+fn never_worse_than_the_plain_placer_and_always_valid() {
+    let req = generate::mixed(1);
+    let r = run(&req, &capped(80));
+    let plain = Score::of(&pack(&req).unwrap(), &OptimizeOptions::default().objective);
+    let best = &r.solutions[0];
+    assert!(!plain.better_than(&best.score), "plain {plain:?} beats {:?}", best.score);
+    assert!(r.solutions.iter().all(|s| s.result.is_valid()));
+    for (i, a) in r.solutions.iter().enumerate() {
+        for b in &r.solutions[i + 1..] {
+            assert!(difference(&a.result, &b.result) >= MIN_DIFFERENCE);
+        }
+    }
+    assert_eq!(r.evaluated, 80);
+}
+
+#[test]
+fn capped_search_is_deterministic() {
+    let mut req = generate::br_like(3, 1).unwrap();
+    req.options.max_containers = 1;
+    let a = run(&req, &capped(60));
+    let b = run(&req, &capped(60));
+    assert_eq!(a.solutions[0].score, b.solutions[0].score);
+    assert_eq!(difference(&a.solutions[0].result, &b.solutions[0].result), 0.0);
+}
+
+#[test]
+fn keeps_loading_order_constraints() {
+    // Stops and zones: the decoder only reorders within a loading group.
+    let mut req = generate::mixed(2);
+    for (i, it) in req.items.iter_mut().enumerate() {
+        it.stop = (i % 3) as u32;
+    }
+    let r = run(&req, &capped(50));
+    let plain = pack(&req).unwrap();
+    let stops = |res: &omnipack_core::PackResult| -> Vec<u32> { res.containers[0].placements.iter().map(|p| p.stop).collect() };
+    // LIFO: stop 0 first, then later stops first — the stop sequence must be sorted the same way.
+    let key = |s: u32| if s == 0 { i64::MIN } else { -(s as i64) };
+    for res in [&plain, &r.solutions[0].result] {
+        let s = stops(res);
+        assert!(s.windows(2).all(|w| key(w[0]) <= key(w[1])), "{s:?}");
+    }
+}
+
+#[test]
+fn cancel_stops_early_with_a_plan() {
+    let req = generate::mixed(3);
+    let cancel = AtomicBool::new(true);
+    let r = optimize(&req, &OptimizeOptions { budget_ms: 60_000, ..Default::default() }, &cancel, &mut |_| {}).unwrap();
+    assert!(r.cancelled);
+    assert!(!r.solutions.is_empty() && r.solutions[0].result.is_valid());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
+
+    #[test]
+    fn small_random_loads_give_valid_plans(class in 1usize..=7, seed in 1u64..50) {
+        let mut req = generate::br_like(class, seed).unwrap();
+        req.options.max_containers = 1;
+        let r = run(&req, &capped(30));
+        prop_assert!(r.solutions.iter().all(|s| s.result.is_valid()));
+        prop_assert!(!r.baseline.better_than(&r.solutions[0].score));
+    }
+}
