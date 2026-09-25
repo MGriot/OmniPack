@@ -111,52 +111,18 @@ pub struct Metrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Violation {
-    OutOfBounds {
-        item: String,
-    },
-    Overlap {
-        a: String,
-        b: String,
-    },
-    Unsupported {
-        item: String,
-    },
-    Unstable {
-        item: String,
-        margin: f64,
-        required: f64,
-    },
-    InsufficientSupportArea {
-        item: String,
-        ratio: f64,
-        required: f64,
-    },
-    MayRoll {
-        item: String,
-    },
-    Overloaded {
-        item: String,
-        load: f64,
-        capacity: f64,
-    },
-    NotOnFloor {
-        item: String,
-    },
-    PayloadExceeded {
-        mass: f64,
-        max: f64,
-    },
-    AxleOverloaded {
-        axle: usize,
-        load: f64,
-        max: f64,
-    },
-    CogOutOfLimits {
-        detail: String,
-    },
-    OrientationNotAllowed {
-        item: String,
-    },
+    OutOfBounds { item: String },
+    Overlap { a: String, b: String, },
+    Unsupported { item: String },
+    Unstable { item: String, margin: f64, required: f64 },
+    InsufficientSupportArea { item: String, ratio: f64, required: f64 },
+    MayRoll { item: String },
+    Overloaded { item: String, load: f64, capacity: f64 },
+    NotOnFloor { item: String },
+    PayloadExceeded { mass: f64, max: f64 },
+    AxleOverloaded { axle: usize, load: f64, max: f64 },
+    CogOutOfLimits { detail: String },
+    OrientationNotAllowed { item: String },
 }
 
 /// Direction of an acceleration acting on the cargo. Forward = towards the

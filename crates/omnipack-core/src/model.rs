@@ -74,11 +74,7 @@ impl ItemSpec {
             .into_iter()
             .filter(|o| allow_rotation || *o == Orientation::Whd)
             .filter(|o| !self.upright_only || o.keeps_upright())
-            .filter(|o| {
-                self.allowed_orientations
-                    .as_ref()
-                    .is_none_or(|a| a.contains(o))
-            })
+            .filter(|o| self.allowed_orientations.as_ref().is_none_or(|a| a.contains(o)))
             .collect()
     }
 }
@@ -207,22 +203,8 @@ pub struct TransportCase {
 }
 
 impl TransportCase {
-    fn new(
-        name: &str,
-        forward: f64,
-        backward: f64,
-        sideways: f64,
-        vertical_min: f64,
-        vertical_max: f64,
-    ) -> Self {
-        TransportCase {
-            name: name.into(),
-            forward,
-            backward,
-            sideways,
-            vertical_min,
-            vertical_max,
-        }
+    fn new(name: &str, forward: f64, backward: f64, sideways: f64, vertical_min: f64, vertical_max: f64) -> Self {
+        TransportCase { name: name.into(), forward, backward, sideways, vertical_min, vertical_max }
     }
 
     /// Built-in profiles. Values follow EN 12195-1:2010 (road) and the CTU

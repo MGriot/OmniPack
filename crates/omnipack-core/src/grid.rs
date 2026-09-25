@@ -14,14 +14,7 @@ impl FloorGrid {
         let cell = cell.max(1e-3);
         let nx = ((width / cell).ceil() as usize).max(1);
         let nz = ((depth / cell).ceil() as usize).max(1);
-        FloorGrid {
-            cell,
-            nx,
-            nz,
-            cells: vec![Vec::new(); nx * nz],
-            stamp: Vec::new(),
-            epoch: 0,
-        }
+        FloorGrid { cell, nx, nz, cells: vec![Vec::new(); nx * nz], stamp: Vec::new(), epoch: 0 }
     }
 
     fn range(&self, x0: f64, z0: f64, x1: f64, z1: f64) -> (usize, usize, usize, usize) {

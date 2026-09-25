@@ -45,9 +45,7 @@ pub fn tip_deficit(shape: &OrientedShape, physics: &crate::model::PhysicsOptions
     if !physics.check_tipping || physics.transport.is_empty() {
         return 0.0;
     }
-    let Some(face) = shape.bottom_face.as_ref() else {
-        return 0.0;
-    };
+    let Some(face) = shape.bottom_face.as_ref() else { return 0.0 };
     let e = shape.extents;
     let c = shape.com_from_min;
     let com = Pt2::new(c[0] - e[0] / 2.0, c[2] - e[2] / 2.0);
@@ -138,11 +136,7 @@ impl<'a> ContainerState<'a> {
             .flat_map(|i| i.shapes.iter())
             .map(|s| s.extents[0].min(s.extents[2]))
             .fold(f64::INFINITY, f64::min);
-        let cell = if min_dim.is_finite() {
-            min_dim.max(spec.width.max(spec.depth) / 256.0)
-        } else {
-            spec.width
-        };
+        let cell = if min_dim.is_finite() { min_dim.max(spec.width.max(spec.depth) / 256.0) } else { spec.width };
         let mut st = ContainerState {
             spec,
             opts,
@@ -155,12 +149,7 @@ impl<'a> ContainerState<'a> {
             moment_x: 0.0,
             scratch: Vec::new(),
         };
-        for p in [
-            [0.0, 0.0],
-            [spec.width, 0.0],
-            [0.0, spec.depth],
-            [spec.width, spec.depth],
-        ] {
+        for p in [[0.0, 0.0], [spec.width, 0.0], [0.0, spec.depth], [spec.width, spec.depth]] {
             st.add_anchor(p);
         }
         st
@@ -212,16 +201,11 @@ impl<'a> ContainerState<'a> {
         let [w, _, d] = shape.extents;
         let nz = self.depth_term(inst, z, d);
         let [wx, wy, wz] = self.opts.bias.weights();
-        let mut s =
-            wx * x / c.width + wy * y / c.height + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient];
+        let mut s = wx * x / c.width + wy * y / c.height + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient];
         if self.opts.balance_weight > 0.0 {
             let cx = x + shape.com_from_min[0];
             let m = self.mass + inst.mass;
-            let com_x = if m > 0.0 {
-                (self.moment_x + inst.mass * cx) / m
-            } else {
-                x + w / 2.0
-            };
+            let com_x = if m > 0.0 { (self.moment_x + inst.mass * cx) / m } else { x + w / 2.0 };
             s += self.opts.balance_weight * 1e-2 * (com_x - c.width / 2.0).abs() / c.width;
         }
         let cw = self.contact_weight();
@@ -267,12 +251,7 @@ impl<'a> ContainerState<'a> {
         let size = [self.spec.width, self.spec.height, self.spec.depth];
         let fill = self.opts.physics.max_fill_gap.max(tol::CONTACT);
         let ids = self.neighbours(min[0] - fill, min[2] - fill, max[0] + fill, max[2] + fill);
-        let mut sides = [
-            min[0] <= fill,
-            max[0] >= size[0] - fill,
-            min[2] <= fill,
-            max[2] >= size[2] - fill,
-        ];
+        let mut sides = [min[0] <= fill, max[0] >= size[0] - fill, min[2] <= fill, max[2] >= size[2] - fill];
         let near = |gap: f64| (-tol::CONTACT..=fill).contains(&gap);
         for i in ids {
             let b = self.body(i);
@@ -320,28 +299,15 @@ impl<'a> ContainerState<'a> {
             }
             for &[px, pz] in &self.anchors {
                 for (x, z) in [(px, pz), (px - w, pz), (px, pz - d), (px - w, pz - d)] {
-                    if x < -tol::BOUNDS
-                        || z < -tol::BOUNDS
-                        || x + w > cw + tol::BOUNDS
-                        || z + d > cd + tol::BOUNDS
-                    {
+                    if x < -tol::BOUNDS || z < -tol::BOUNDS || x + w > cw + tol::BOUNDS || z + d > cd + tol::BOUNDS {
                         continue;
                     }
-                    let (x, z) = (
-                        x.clamp(0.0, (cw - w).max(0.0)),
-                        z.clamp(0.0, (cd - d).max(0.0)),
-                    );
+                    let (x, z) = (x.clamp(0.0, (cw - w).max(0.0)), z.clamp(0.0, (cd - d).max(0.0)));
                     if !seen.insert((oi, key(x), key(z))) {
                         continue;
                     }
                     let lb = self.score_lower_bound(inst, oi, x, z);
-                    heap.push(Candidate {
-                        key: lb,
-                        orient: oi,
-                        x,
-                        z,
-                        y: None,
-                    });
+                    heap.push(Candidate { key: lb, orient: oi, x, z, y: None });
                 }
             }
         }
@@ -358,11 +324,7 @@ impl<'a> ContainerState<'a> {
                         continue;
                     }
                     let s = self.score(inst_idx, c.orient, c.x, y, c.z);
-                    heap.push(Candidate {
-                        key: s,
-                        y: Some(y),
-                        ..c
-                    });
+                    heap.push(Candidate { key: s, y: Some(y), ..c });
                 }
                 Some(y) => {
                     checks += 1;
@@ -386,12 +348,7 @@ impl<'a> ContainerState<'a> {
         let shape = &inst.shapes[orient];
         let body = Body::new(shape, min);
         let mx = body.max();
-        let ids = self.neighbours(
-            min[0] - tol::CONTACT,
-            min[2] - tol::CONTACT,
-            mx[0] + tol::CONTACT,
-            mx[2] + tol::CONTACT,
-        );
+        let ids = self.neighbours(min[0] - tol::CONTACT, min[2] - tol::CONTACT, mx[0] + tol::CONTACT, mx[2] + tol::CONTACT);
         let info = compute_supports(&body, ids.iter().map(|&j| (j, self.body(j))));
         if info.set.is_empty() {
             return None;
@@ -454,10 +411,7 @@ impl<'a> ContainerState<'a> {
             }
             let bj = self.body(j);
             let cj = bj.com();
-            let total = add(
-                load_at(effective_mass(ij.mass), Pt2::new(cj[0], cj[2])),
-                incoming,
-            );
+            let total = add(load_at(effective_mass(ij.mass), Pt2::new(cj[0], cj[2])), incoming);
             let r = resultant(total)?;
             let mj = scene::stability_margin(&pj.supports, r, pj.roll.is_held());
             if mj < pj.required_margin - 1e-9 {
@@ -466,12 +420,7 @@ impl<'a> ContainerState<'a> {
             let new_out = scene::distribute(&pj.supports, total, pj.roll.is_held())?;
             for (s, l) in &new_out {
                 if let Support::Item(k) = *s {
-                    let old = pj
-                        .outgoing
-                        .iter()
-                        .find(|(o, _)| o == s)
-                        .map(|x| x.1)
-                        .unwrap_or([0.0; 3]);
+                    let old = pj.outgoing.iter().find(|(o, _)| o == s).map(|x| x.1).unwrap_or([0.0; 3]);
                     let e = delta.entry(k).or_insert([0.0; 3]);
                     *e = add(*e, sub(*l, old));
                     queue.push(k);
@@ -486,12 +435,7 @@ impl<'a> ContainerState<'a> {
                     }
                 }
             }
-            updates.push(Update {
-                idx: j,
-                incoming,
-                outgoing: new_out,
-                margin: mj,
-            });
+            updates.push(Update { idx: j, incoming, outgoing: new_out, margin: mj });
         }
         Some(Commit {
             body: PlacedBody {
@@ -528,18 +472,9 @@ impl<'a> ContainerState<'a> {
         self.placed.push(b);
         let (cw, cd) = (self.spec.width, self.spec.depth);
         for p in [
-            [x1, z0],
-            [x0, z1],
-            [x1, z1],
-            [x0, z0],
-            [0.0, z0],
-            [0.0, z1],
-            [x0, 0.0],
-            [x1, 0.0],
-            [cw, z0],
-            [cw, z1],
-            [x0, cd],
-            [x1, cd],
+            [x1, z0], [x0, z1], [x1, z1], [x0, z0],
+            [0.0, z0], [0.0, z1], [x0, 0.0], [x1, 0.0],
+            [cw, z0], [cw, z1], [x0, cd], [x1, cd],
         ] {
             self.add_anchor(p);
         }

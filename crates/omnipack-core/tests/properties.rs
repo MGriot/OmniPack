@@ -30,33 +30,22 @@ fn item(i: usize) -> impl Strategy<Value = ItemSpec> {
         0u32..4,
         prop::array::uniform3(-5.0..5.0f64),
     )
-        .prop_map(
-            move |(
-                shape,
-                mass,
-                quantity,
-                max_load_on_top,
-                fragile,
-                upright_only,
-                stop,
-                com_offset,
-            )| ItemSpec {
-                id: format!("i{i}"),
-                shape,
-                mass,
-                quantity,
-                max_load_on_top,
-                fragile,
-                floor_only: false,
-                upright_only,
-                allowed_orientations: None,
-                stop,
-                zone: Zone::Any,
-                com_offset,
-                color: None,
-                friction: None,
-            },
-        )
+        .prop_map(move |(shape, mass, quantity, max_load_on_top, fragile, upright_only, stop, com_offset)| ItemSpec {
+            id: format!("i{i}"),
+            shape,
+            mass,
+            quantity,
+            max_load_on_top,
+            fragile,
+            floor_only: false,
+            upright_only,
+            allowed_orientations: None,
+            stop,
+            zone: Zone::Any,
+            com_offset,
+            color: None,
+            friction: None,
+        })
 }
 
 fn request() -> impl Strategy<Value = PackRequest> {
@@ -83,39 +72,28 @@ fn request() -> impl Strategy<Value = PackRequest> {
             any::<bool>(),
         ),
     )
-        .prop_map(
-            |(
-                items,
+        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks))| PackRequest {
+            container: ContainerSpec {
+                id: "c".into(),
+                width: 233.0,
+                height: 220.0,
+                depth: 400.0,
+                max_payload: None,
+                axles: None,
+                cog_limits: CogLimits::default(),
+            },
+            items,
+            options: PackOptions {
                 bias,
                 stability_margin,
                 min_support_ratio,
-                (stop_order, priority, use_chocks),
-            )| PackRequest {
-                container: ContainerSpec {
-                    id: "c".into(),
-                    width: 233.0,
-                    height: 220.0,
-                    depth: 400.0,
-                    max_payload: None,
-                    axles: None,
-                    cog_limits: CogLimits::default(),
-                },
-                items,
-                options: PackOptions {
-                    bias,
-                    stability_margin,
-                    min_support_ratio,
-                    stop_order,
-                    priority,
-                    physics: PhysicsOptions {
-                        use_chocks,
-                        ..Default::default()
-                    },
-                    max_containers: 3,
-                    ..Default::default()
-                },
+                stop_order,
+                priority,
+                physics: PhysicsOptions { use_chocks, ..Default::default() },
+                max_containers: 3,
+                ..Default::default()
             },
-        )
+        })
 }
 
 proptest! {
@@ -156,11 +134,7 @@ proptest! {
 fn mixed_truck_load_is_valid() {
     for seed in 1..=5 {
         let res = pack(&generate::mixed(seed)).unwrap();
-        assert!(
-            res.is_valid(),
-            "seed {seed}: {:?}",
-            res.containers[0].violations
-        );
+        assert!(res.is_valid(), "seed {seed}: {:?}", res.containers[0].violations);
         assert!(res.unpacked.is_empty(), "seed {seed}: {:?}", res.unpacked);
     }
 }
@@ -169,14 +143,7 @@ fn mixed_truck_load_is_valid() {
 fn shapes_sample_is_valid() {
     for seed in 1..=3 {
         let res = pack(&generate::shapes(seed)).unwrap();
-        assert!(
-            res.is_valid(),
-            "seed {seed}: {:?}",
-            res.containers
-                .iter()
-                .map(|c| &c.violations)
-                .collect::<Vec<_>>()
-        );
+        assert!(res.is_valid(), "seed {seed}: {:?}", res.containers.iter().map(|c| &c.violations).collect::<Vec<_>>());
         assert!(res.packed_units > 0);
     }
 }
@@ -188,9 +155,6 @@ fn br_like_instances_are_valid() {
         req.options.max_containers = 1;
         let res = pack(&req).unwrap();
         assert!(res.is_valid(), "BR{class}");
-        assert!(
-            res.containers[0].metrics.volume_utilization > 0.6,
-            "BR{class} too sparse"
-        );
+        assert!(res.containers[0].metrics.volume_utilization > 0.6, "BR{class} too sparse");
     }
 }

@@ -18,45 +18,20 @@ type PartMesh = (Vec<[f64; 3]>, Vec<[u32; 3]>);
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Shape {
-    Box {
-        w: f64,
-        h: f64,
-        d: f64,
-    },
+    Box { w: f64, h: f64, d: f64 },
     /// Axis along local Y.
-    Cylinder {
-        radius: f64,
-        length: f64,
-    },
-    Sphere {
-        radius: f64,
-    },
+    Cylinder { radius: f64, length: f64 },
+    Sphere { radius: f64 },
     /// Base down, apex up (local Y).
-    Cone {
-        radius: f64,
-        height: f64,
-    },
+    Cone { radius: f64, height: f64 },
     /// Rectangular base `w × d`, apex up.
-    Pyramid {
-        w: f64,
-        d: f64,
-        height: f64,
-    },
+    Pyramid { w: f64, d: f64, height: f64 },
     /// Regular `sides`-gon cross-section (circumradius `radius`), axis along
     /// local Y, with one flat side facing local −Z so it can lie on a face.
-    Prism {
-        sides: u32,
-        radius: f64,
-        length: f64,
-    },
+    Prism { sides: u32, radius: f64, length: f64 },
     /// Angle profile: horizontal leg `a` (local X) and vertical leg `b`
     /// (local Y), both `thickness` thick, extruded `length` along local Z.
-    LProfile {
-        a: f64,
-        b: f64,
-        thickness: f64,
-        length: f64,
-    },
+    LProfile { a: f64, b: f64, thickness: f64, length: f64 },
 }
 
 fn prism_polygon(sides: u32, radius: f64) -> Vec<(f64, f64)> {
@@ -70,10 +45,9 @@ fn prism_polygon(sides: u32, radius: f64) -> Vec<(f64, f64)> {
 }
 
 fn bounds_2d(pts: &[(f64, f64)]) -> (f64, f64, f64, f64) {
-    pts.iter().fold(
-        (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
-        |(a, b, c, d), &(x, z)| (a.min(x), b.min(z), c.max(x), d.max(z)),
-    )
+    pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |(a, b, c, d), &(x, z)| {
+        (a.min(x), b.min(z), c.max(x), d.max(z))
+    })
 }
 
 impl Shape {
@@ -84,11 +58,7 @@ impl Shape {
             Shape::Sphere { radius } => [2.0 * radius; 3],
             Shape::Cone { radius, height } => [2.0 * radius, height, 2.0 * radius],
             Shape::Pyramid { w, d, height } => [w, height, d],
-            Shape::Prism {
-                sides,
-                radius,
-                length,
-            } => {
+            Shape::Prism { sides, radius, length } => {
                 let (x0, z0, x1, z1) = bounds_2d(&prism_polygon(sides, radius));
                 [x1 - x0, length, z1 - z0]
             }
@@ -97,16 +67,11 @@ impl Shape {
     }
 
     pub fn is_valid(&self) -> bool {
-        let dims_ok = self
-            .local_extents()
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.0);
+        let dims_ok = self.local_extents().iter().all(|v| v.is_finite() && *v > 0.0);
         dims_ok
             && match *self {
                 Shape::Prism { sides, .. } => (3..=64).contains(&sides),
-                Shape::LProfile {
-                    a, b, thickness, ..
-                } => thickness > 0.0 && thickness < a && thickness < b,
+                Shape::LProfile { a, b, thickness, .. } => thickness > 0.0 && thickness < a && thickness < b,
                 _ => true,
             }
     }
@@ -119,20 +84,11 @@ impl Shape {
             Shape::Sphere { radius } => 4.0 / 3.0 * PI * radius.powi(3),
             Shape::Cone { radius, height } => PI * radius * radius * height / 3.0,
             Shape::Pyramid { w, d, height } => w * d * height / 3.0,
-            Shape::Prism {
-                sides,
-                radius,
-                length,
-            } => {
+            Shape::Prism { sides, radius, length } => {
                 let n = sides.max(3) as f64;
                 0.5 * n * radius * radius * (TAU / n).sin() * length
             }
-            Shape::LProfile {
-                a,
-                b,
-                thickness: t,
-                length,
-            } => (a * t + (b - t) * t) * length,
+            Shape::LProfile { a, b, thickness: t, length } => (a * t + (b - t) * t) * length,
         }
     }
 
@@ -140,14 +96,8 @@ impl Shape {
     fn parts(&self) -> Vec<(Vector<f64>, SharedShape)> {
         let one = |s: SharedShape| vec![(Vector::zeros(), s)];
         match *self {
-            Shape::Box { w, h, d } => one(SharedShape::new(Cuboid::new(Vector::new(
-                w / 2.0,
-                h / 2.0,
-                d / 2.0,
-            )))),
-            Shape::Cylinder { radius, length } => {
-                one(SharedShape::new(Cylinder::new(length / 2.0, radius)))
-            }
+            Shape::Box { w, h, d } => one(SharedShape::new(Cuboid::new(Vector::new(w / 2.0, h / 2.0, d / 2.0)))),
+            Shape::Cylinder { radius, length } => one(SharedShape::new(Cylinder::new(length / 2.0, radius))),
             Shape::Sphere { radius } => one(SharedShape::ball(radius)),
             Shape::Cone { radius, height } => one(SharedShape::cone(height / 2.0, radius)),
             Shape::Pyramid { w, d, height } => {
@@ -161,38 +111,19 @@ impl Shape {
                 ];
                 one(SharedShape::convex_hull(&pts).expect("pyramid hull"))
             }
-            Shape::Prism {
-                sides,
-                radius,
-                length,
-            } => {
+            Shape::Prism { sides, radius, length } => {
                 let poly = prism_polygon(sides, radius);
                 let (x0, z0, x1, z1) = bounds_2d(&poly);
                 let (cx, cz) = ((x0 + x1) / 2.0, (z0 + z1) / 2.0);
                 let pts: Vec<Point<f64>> = poly
                     .iter()
-                    .flat_map(|&(x, z)| {
-                        [
-                            Point::new(x - cx, -length / 2.0, z - cz),
-                            Point::new(x - cx, length / 2.0, z - cz),
-                        ]
-                    })
+                    .flat_map(|&(x, z)| [Point::new(x - cx, -length / 2.0, z - cz), Point::new(x - cx, length / 2.0, z - cz)])
                     .collect();
                 one(SharedShape::convex_hull(&pts).expect("prism hull"))
             }
-            Shape::LProfile {
-                a,
-                b,
-                thickness: t,
-                length,
-            } => {
-                let leg_a =
-                    SharedShape::new(Cuboid::new(Vector::new(a / 2.0, t / 2.0, length / 2.0)));
-                let leg_b = SharedShape::new(Cuboid::new(Vector::new(
-                    t / 2.0,
-                    (b - t) / 2.0,
-                    length / 2.0,
-                )));
+            Shape::LProfile { a, b, thickness: t, length } => {
+                let leg_a = SharedShape::new(Cuboid::new(Vector::new(a / 2.0, t / 2.0, length / 2.0)));
+                let leg_b = SharedShape::new(Cuboid::new(Vector::new(t / 2.0, (b - t) / 2.0, length / 2.0)));
                 vec![
                     (Vector::new(0.0, -b / 2.0 + t / 2.0, 0.0), leg_a),
                     (Vector::new(-a / 2.0 + t / 2.0, t / 2.0, 0.0), leg_b),
@@ -206,12 +137,7 @@ impl Shape {
         if parts.len() == 1 {
             return parts.pop().unwrap().1;
         }
-        SharedShape::compound(
-            parts
-                .into_iter()
-                .map(|(o, s)| (Isometry::translation(o.x, o.y, o.z), s))
-                .collect(),
-        )
+        SharedShape::compound(parts.into_iter().map(|(o, s)| (Isometry::translation(o.x, o.y, o.z), s)).collect())
     }
 
     /// Centre of mass in the local frame (uniform density).
@@ -238,12 +164,7 @@ impl Shape {
                 } else {
                     (Vec::new(), Vec::new())
                 };
-                (
-                    pts.iter()
-                        .map(|p| [p.x + off.x, p.y + off.y, p.z + off.z])
-                        .collect(),
-                    idx,
-                )
+                (pts.iter().map(|p| [p.x + off.x, p.y + off.y, p.z + off.z]).collect(), idx)
             })
             .collect()
     }
@@ -382,24 +303,13 @@ impl std::fmt::Debug for OrientedShape {
 fn flat_face(parts: &[Vec<[f64; 3]>], top: bool) -> Option<Vec<Pt2>> {
     let key = |p: &[f64; 3]| if top { p[1] } else { -p[1] };
     let extreme = parts.iter().flatten().map(key).fold(f64::MIN, f64::max);
-    let scale = parts
-        .iter()
-        .flatten()
-        .map(|p| p[0].abs().max(p[1].abs()).max(p[2].abs()))
-        .fold(1.0, f64::max);
+    let scale = parts.iter().flatten().map(|p| p[0].abs().max(p[1].abs()).max(p[2].abs())).fold(1.0, f64::max);
     let eps = 1e-7 * scale;
-    let touching: Vec<&Vec<[f64; 3]>> = parts
-        .iter()
-        .filter(|part| part.iter().any(|p| key(p) >= extreme - eps))
-        .collect();
+    let touching: Vec<&Vec<[f64; 3]>> = parts.iter().filter(|part| part.iter().any(|p| key(p) >= extreme - eps)).collect();
     if touching.len() != 1 {
         return None;
     }
-    let pts: Vec<Pt2> = touching[0]
-        .iter()
-        .filter(|p| key(p) >= extreme - eps)
-        .map(|p| Pt2::new(p[0], p[2]))
-        .collect();
+    let pts: Vec<Pt2> = touching[0].iter().filter(|p| key(p) >= extreme - eps).map(|p| Pt2::new(p[0], p[2])).collect();
     let hull = convex_hull(&pts);
     (hull.len() >= 3 && polygon_area(&hull) > eps * eps).then_some(hull)
 }
@@ -411,17 +321,8 @@ impl OrientedShape {
         let extents = orientation.world_extents(shape.local_extents());
         let rotation = orientation.rotation();
         let lc = shape.local_com();
-        let c = rotation
-            * Vector::new(
-                lc[0] + com_offset[0],
-                lc[1] + com_offset[1],
-                lc[2] + com_offset[2],
-            );
-        let com_from_min = [
-            extents[0] / 2.0 + c.x,
-            extents[1] / 2.0 + c.y,
-            extents[2] / 2.0 + c.z,
-        ];
+        let c = rotation * Vector::new(lc[0] + com_offset[0], lc[1] + com_offset[1], lc[2] + com_offset[2]);
+        let com_from_min = [extents[0] / 2.0 + c.x, extents[1] / 2.0 + c.y, extents[2] / 2.0 + c.z];
         let world_parts: Vec<Vec<[f64; 3]>> = shape
             .part_meshes()
             .into_iter()
@@ -506,41 +407,14 @@ mod tests {
 
     fn all_shapes() -> Vec<Shape> {
         vec![
-            Shape::Box {
-                w: 10.0,
-                h: 20.0,
-                d: 30.0,
-            },
-            Shape::Cylinder {
-                radius: 5.0,
-                length: 40.0,
-            },
+            Shape::Box { w: 10.0, h: 20.0, d: 30.0 },
+            Shape::Cylinder { radius: 5.0, length: 40.0 },
             Shape::Sphere { radius: 7.0 },
-            Shape::Cone {
-                radius: 6.0,
-                height: 20.0,
-            },
-            Shape::Pyramid {
-                w: 10.0,
-                d: 14.0,
-                height: 12.0,
-            },
-            Shape::Prism {
-                sides: 3,
-                radius: 10.0,
-                length: 30.0,
-            },
-            Shape::Prism {
-                sides: 6,
-                radius: 10.0,
-                length: 30.0,
-            },
-            Shape::LProfile {
-                a: 20.0,
-                b: 15.0,
-                thickness: 3.0,
-                length: 50.0,
-            },
+            Shape::Cone { radius: 6.0, height: 20.0 },
+            Shape::Pyramid { w: 10.0, d: 14.0, height: 12.0 },
+            Shape::Prism { sides: 3, radius: 10.0, length: 30.0 },
+            Shape::Prism { sides: 6, radius: 10.0, length: 30.0 },
+            Shape::LProfile { a: 20.0, b: 15.0, thickness: 3.0, length: 50.0 },
         ]
     }
 
@@ -552,18 +426,9 @@ mod tests {
                 let aabb = os.parry().compute_aabb(&os.isometry_at([0.0; 3]));
                 let e = aabb.extents();
                 for k in 0..3 {
-                    assert!(
-                        (e[k] - os.extents[k]).abs() < 1e-6,
-                        "{s:?} {o:?} axis {k}: {} vs {}",
-                        e[k],
-                        os.extents[k]
-                    );
+                    assert!((e[k] - os.extents[k]).abs() < 1e-6, "{s:?} {o:?} axis {k}: {} vs {}", e[k], os.extents[k]);
                 }
-                assert!(
-                    aabb.mins.coords.norm() < 1e-6,
-                    "{s:?} {o:?}: AABB not centred ({:?})",
-                    aabb.mins
-                );
+                assert!(aabb.mins.coords.norm() < 1e-6, "{s:?} {o:?}: AABB not centred ({:?})", aabb.mins);
             }
         }
     }
@@ -572,11 +437,7 @@ mod tests {
     fn volumes_match_parry_mass_properties() {
         for s in all_shapes() {
             let v = s.parry_shape().mass_properties(1.0).mass();
-            assert!(
-                (v - s.volume()).abs() / s.volume() < 1e-6,
-                "{s:?}: {v} vs {}",
-                s.volume()
-            );
+            assert!((v - s.volume()).abs() / s.volume() < 1e-6, "{s:?}: {v} vs {}", s.volume());
         }
     }
 
@@ -587,58 +448,29 @@ mod tests {
                 let os = OrientedShape::new(&s, o, [0.0; 3]);
                 let rolls = s.can_roll() && os.bottom_face.is_none();
                 let l_profile = matches!(s, Shape::LProfile { .. });
-                assert!(
-                    rolls || l_profile || os.bottom_face.is_some(),
-                    "{s:?} {o:?} has no flat bottom"
-                );
+                assert!(rolls || l_profile || os.bottom_face.is_some(), "{s:?} {o:?} has no flat bottom");
             }
         }
     }
 
     #[test]
     fn cone_centre_of_mass_is_a_quarter_up() {
-        let os = OrientedShape::new(
-            &Shape::Cone {
-                radius: 5.0,
-                height: 20.0,
-            },
-            Orientation::Whd,
-            [0.0; 3],
-        );
-        assert!(
-            (os.com_from_min[1] - 5.0).abs() < 1e-6,
-            "{:?}",
-            os.com_from_min
-        );
+        let os = OrientedShape::new(&Shape::Cone { radius: 5.0, height: 20.0 }, Orientation::Whd, [0.0; 3]);
+        assert!((os.com_from_min[1] - 5.0).abs() < 1e-6, "{:?}", os.com_from_min);
     }
 
     #[test]
     fn cylinder_orientations() {
-        let s = Shape::Cylinder {
-            radius: 5.0,
-            length: 40.0,
-        };
-        assert_eq!(
-            OrientedShape::new(&s, Orientation::Whd, [0.0; 3]).extents,
-            [10.0, 40.0, 10.0]
-        );
-        assert_eq!(
-            OrientedShape::new(&s, Orientation::Hwd, [0.0; 3]).extents,
-            [40.0, 10.0, 10.0]
-        );
+        let s = Shape::Cylinder { radius: 5.0, length: 40.0 };
+        assert_eq!(OrientedShape::new(&s, Orientation::Whd, [0.0; 3]).extents, [10.0, 40.0, 10.0]);
+        assert_eq!(OrientedShape::new(&s, Orientation::Hwd, [0.0; 3]).extents, [40.0, 10.0, 10.0]);
     }
 
     #[test]
     fn com_offset_rotates_with_item() {
-        let s = Shape::Box {
-            w: 10.0,
-            h: 20.0,
-            d: 30.0,
-        };
+        let s = Shape::Box { w: 10.0, h: 20.0, d: 30.0 };
         let os = OrientedShape::new(&s, Orientation::Hwd, [0.0, 5.0, 0.0]);
-        assert!(
-            (os.com_from_min[0] - 15.0).abs() < 1e-9 || (os.com_from_min[0] - 5.0).abs() < 1e-9
-        );
+        assert!((os.com_from_min[0] - 15.0).abs() < 1e-9 || (os.com_from_min[0] - 5.0).abs() < 1e-9);
         assert!((os.com_from_min[1] - 5.0).abs() < 1e-9);
     }
 
@@ -646,16 +478,8 @@ mod tests {
     fn render_mesh_is_well_formed() {
         for s in all_shapes() {
             let m = OrientedShape::new(&s, Orientation::Whd, [0.0; 3]).render_mesh();
-            assert!(
-                !m.indices.is_empty() && m.indices.len().is_multiple_of(3),
-                "{s:?}"
-            );
-            assert!(
-                m.indices
-                    .iter()
-                    .all(|&i| (i as usize) < m.positions.len() / 3),
-                "{s:?}"
-            );
+            assert!(!m.indices.is_empty() && m.indices.len().is_multiple_of(3), "{s:?}");
+            assert!(m.indices.iter().all(|&i| (i as usize) < m.positions.len() / 3), "{s:?}");
         }
     }
 }

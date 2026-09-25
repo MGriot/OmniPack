@@ -10,9 +10,7 @@ pub mod query;
 pub mod shape;
 pub mod tol;
 
-pub use hull2d::{
-    clip_convex, convex_hull, polygon_area, ray_exit_distance, signed_distance_to_polygon, Pt2,
-};
+pub use hull2d::{clip_convex, convex_hull, polygon_area, ray_exit_distance, signed_distance_to_polygon, Pt2};
 pub use parry3d_f64 as parry;
 pub use parry3d_f64::na;
 pub use query::{drop_height, floor_contacts, overlaps, support_contacts, Body, SupportContact};

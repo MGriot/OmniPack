@@ -48,11 +48,7 @@ fn summary(r: &PackResult) -> String {
         r.containers.len(),
         r.volume_utilization * 100.0,
         r.elapsed_ms,
-        if r.is_valid() {
-            "all checks passed"
-        } else {
-            "VIOLATIONS FOUND"
-        }
+        if r.is_valid() { "all checks passed" } else { "VIOLATIONS FOUND" }
     );
     for c in &r.containers {
         let m = &c.metrics;
@@ -84,8 +80,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         Some("pack") => {
             let path = args.get(1).ok_or("missing request path")?;
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-            let req: PackRequest =
-                serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+            let req: PackRequest = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
             let res = pack(&req).map_err(|e| e.to_string())?;
             eprintln!("{}", summary(&res));
             if out.is_some() {
@@ -96,10 +91,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         Some("gen") => {
             let req = match args.get(1).map(String::as_str) {
                 Some("br") => {
-                    let class: usize = args
-                        .get(2)
-                        .and_then(|s| s.parse().ok())
-                        .ok_or("class 1-7")?;
+                    let class: usize = args.get(2).and_then(|s| s.parse().ok()).ok_or("class 1-7")?;
                     let seed: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1);
                     generate::br_like(class, seed).ok_or("class must be 1-7")?
                 }
@@ -117,10 +109,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         Some("thpack") => {
             let path = args.get(1).ok_or("missing thpack path")?;
-            let n: usize = args
-                .get(2)
-                .and_then(|s| s.parse().ok())
-                .ok_or("problem number")?;
+            let n: usize = args.get(2).and_then(|s| s.parse().ok()).ok_or("problem number")?;
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
             let req = generate::parse_thpack(&text, n)?;
             write_json(&req, out)
@@ -134,10 +123,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                     let mut req = generate::br_like(class, seed).unwrap();
                     req.options.max_containers = 1;
                     let r = pack(&req).map_err(|e| e.to_string())?;
-                    let u = r
-                        .containers
-                        .first()
-                        .map_or(0.0, |c| c.metrics.volume_utilization);
+                    let u = r.containers.first().map_or(0.0, |c| c.metrics.volume_utilization);
                     sum += u;
                     min = min.min(u);
                     ms += r.elapsed_ms;

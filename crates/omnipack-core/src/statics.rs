@@ -57,11 +57,7 @@ pub struct SupportSet {
 impl SupportSet {
     pub fn new(points: Vec<Pt2>, owners: Vec<Support>) -> Self {
         let hull = collapse_thin(convex_hull(&points));
-        SupportSet {
-            points,
-            owners,
-            hull,
-        }
+        SupportSet { points, owners, hull }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -112,21 +108,13 @@ fn collapse_thin(hull: Vec<Pt2>) -> Vec<Pt2> {
             }
         }
     }
-    let centroid = Pt2::new(
-        hull.iter().map(|p| p.x).sum::<f64>() / hull.len() as f64,
-        hull.iter().map(|p| p.z).sum::<f64>() / hull.len() as f64,
-    );
+    let centroid = Pt2::new(hull.iter().map(|p| p.x).sum::<f64>() / hull.len() as f64, hull.iter().map(|p| p.z).sum::<f64>() / hull.len() as f64);
     if best < tol::DEGENERATE_WIDTH {
         return vec![centroid];
     }
     let (ux, uz) = ((b.x - a.x) / best, (b.z - a.z) / best);
-    let offsets: Vec<f64> = hull
-        .iter()
-        .map(|p| (p.x - a.x) * -uz + (p.z - a.z) * ux)
-        .collect();
-    let (lo, hi) = offsets
-        .iter()
-        .fold((f64::MAX, f64::MIN), |(l, h), &o| (l.min(o), h.max(o)));
+    let offsets: Vec<f64> = hull.iter().map(|p| (p.x - a.x) * -uz + (p.z - a.z) * ux).collect();
+    let (lo, hi) = offsets.iter().fold((f64::MAX, f64::MIN), |(l, h), &o| (l.min(o), h.max(o)));
     if hi - lo >= tol::DEGENERATE_WIDTH {
         return hull;
     }
@@ -145,11 +133,7 @@ fn collapse_thin(hull: Vec<Pt2>) -> Vec<Pt2> {
 pub fn distribute(points: &[Pt2], at: Pt2, total: f64) -> Option<Vec<f64>> {
     let n = points.len();
     if n == 0 || total <= 0.0 {
-        return if total <= 0.0 {
-            Some(vec![0.0; n])
-        } else {
-            None
-        };
+        return if total <= 0.0 { Some(vec![0.0; n]) } else { None };
     }
     // Normalise lever arms so the pseudo-inverse tolerance is scale-free.
     let scale = points
@@ -174,11 +158,7 @@ pub fn distribute(points: &[Pt2], at: Pt2, total: f64) -> Option<Vec<f64>> {
         let b = DVector::from_vec(vec![1.0, 0.0, 0.0]);
         let pinv = (&a * a.transpose()).pseudo_inverse(1e-10).ok()?;
         let f = a.transpose() * (pinv * &b);
-        let (worst, worst_f) =
-            (0..k).map(|c| (c, f[c])).fold(
-                (0, f64::INFINITY),
-                |acc, x| if x.1 < acc.1 { x } else { acc },
-            );
+        let (worst, worst_f) = (0..k).map(|c| (c, f[c])).fold((0, f64::INFINITY), |acc, x| if x.1 < acc.1 { x } else { acc });
         if worst_f < -1e-9 {
             active[idx[worst]] = false;
             continue;
@@ -200,12 +180,7 @@ mod tests {
     use super::*;
 
     fn square() -> Vec<Pt2> {
-        vec![
-            Pt2::new(0.0, 0.0),
-            Pt2::new(10.0, 0.0),
-            Pt2::new(10.0, 10.0),
-            Pt2::new(0.0, 10.0),
-        ]
+        vec![Pt2::new(0.0, 0.0), Pt2::new(10.0, 0.0), Pt2::new(10.0, 10.0), Pt2::new(0.0, 10.0)]
     }
 
     #[test]
@@ -245,32 +220,15 @@ mod tests {
     fn two_supporters_share_by_lever_rule() {
         // A beam on two blocks at x in [0,2] and [8,10], load at x = 3.
         let pts = vec![
-            Pt2::new(0.0, 0.0),
-            Pt2::new(2.0, 0.0),
-            Pt2::new(2.0, 1.0),
-            Pt2::new(0.0, 1.0),
-            Pt2::new(8.0, 0.0),
-            Pt2::new(10.0, 0.0),
-            Pt2::new(10.0, 1.0),
-            Pt2::new(8.0, 1.0),
+            Pt2::new(0.0, 0.0), Pt2::new(2.0, 0.0), Pt2::new(2.0, 1.0), Pt2::new(0.0, 1.0),
+            Pt2::new(8.0, 0.0), Pt2::new(10.0, 0.0), Pt2::new(10.0, 1.0), Pt2::new(8.0, 1.0),
         ];
         let owners = [0, 0, 0, 0, 1, 1, 1, 1].map(Support::Item).to_vec();
         let set = SupportSet::new(pts, owners);
         let shares = set.distribute(load_at(100.0, Pt2::new(3.0, 0.5))).unwrap();
-        let left = shares
-            .iter()
-            .find(|(o, _)| *o == Support::Item(0))
-            .unwrap()
-            .1[0];
-        let right = shares
-            .iter()
-            .find(|(o, _)| *o == Support::Item(1))
-            .unwrap()
-            .1[0];
+        let left = shares.iter().find(|(o, _)| *o == Support::Item(0)).unwrap().1[0];
+        let right = shares.iter().find(|(o, _)| *o == Support::Item(1)).unwrap().1[0];
         assert!((left + right - 100.0).abs() < 1e-6);
-        assert!(
-            left > right,
-            "load nearer the left block must load it more: {left} vs {right}"
-        );
+        assert!(left > right, "load nearer the left block must load it more: {left} vs {right}");
     }
 }

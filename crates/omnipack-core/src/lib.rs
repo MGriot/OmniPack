@@ -37,10 +37,7 @@ pub enum PackError {
 
 fn check(req: &PackRequest) -> Result<(), PackError> {
     let c = &req.container;
-    if ![c.width, c.height, c.depth]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.0)
-    {
+    if ![c.width, c.height, c.depth].iter().all(|v| v.is_finite() && *v > 0.0) {
         return Err(PackError::InvalidContainer);
     }
     let mut ids = std::collections::HashSet::new();
@@ -82,10 +79,7 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
                 stop: it.stop,
                 zone: it.zone,
                 volume: it.shape.volume(),
-                tip_deficit: shapes
-                    .iter()
-                    .map(|s| placer::tip_deficit(s, &req.options.physics))
-                    .collect(),
+                tip_deficit: shapes.iter().map(|s| placer::tip_deficit(s, &req.options.physics)).collect(),
             });
         }
     }
@@ -104,28 +98,15 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
         Zone::Front => 2,
     };
     let footprint = |i: &Instance| {
-        i.shapes
-            .iter()
-            .map(|s| s.extents[0] * s.extents[2])
-            .fold(0.0, f64::max)
+        i.shapes.iter().map(|s| s.extents[0] * s.extents[2]).fold(0.0, f64::max)
     };
     let height = |i: &Instance| i.shapes.first().map_or(0.0, |s| s.extents[1]);
     out.sort_by(|a, b| {
         let by_priority = match opts.priority {
-            LoadPriority::Volume => b
-                .volume
-                .total_cmp(&a.volume)
-                .then(b.mass.total_cmp(&a.mass)),
-            LoadPriority::Mass => b
-                .mass
-                .total_cmp(&a.mass)
-                .then(b.volume.total_cmp(&a.volume)),
-            LoadPriority::BaseArea => footprint(b)
-                .total_cmp(&footprint(a))
-                .then(b.mass.total_cmp(&a.mass)),
-            LoadPriority::Height => height(b)
-                .total_cmp(&height(a))
-                .then(b.volume.total_cmp(&a.volume)),
+            LoadPriority::Volume => b.volume.total_cmp(&a.volume).then(b.mass.total_cmp(&a.mass)),
+            LoadPriority::Mass => b.mass.total_cmp(&a.mass).then(b.volume.total_cmp(&a.volume)),
+            LoadPriority::BaseArea => footprint(b).total_cmp(&footprint(a)).then(b.mass.total_cmp(&a.mass)),
+            LoadPriority::Height => height(b).total_cmp(&height(a)).then(b.volume.total_cmp(&a.volume)),
             LoadPriority::AsListed => std::cmp::Ordering::Equal,
         };
         stop_rank(a.stop)
@@ -140,9 +121,7 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
 
 fn fits_empty(inst: &Instance, c: &ContainerSpec) -> bool {
     inst.shapes.iter().any(|s| {
-        s.extents[0] <= c.width + tol::BOUNDS
-            && s.extents[1] <= c.height + tol::BOUNDS
-            && s.extents[2] <= c.depth + tol::BOUNDS
+        s.extents[0] <= c.width + tol::BOUNDS && s.extents[1] <= c.height + tol::BOUNDS && s.extents[2] <= c.depth + tol::BOUNDS
     })
 }
 
@@ -170,11 +149,7 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
             None
         };
         match reason {
-            Some(r) => unpacked.push(Unpacked {
-                instance_id: inst.id.clone(),
-                item_id: inst.item_id.clone(),
-                reason: r,
-            }),
+            Some(r) => unpacked.push(Unpacked { instance_id: inst.id.clone(), item_id: inst.item_id.clone(), reason: r }),
             None => pending.push(i),
         }
     }
@@ -220,37 +195,21 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
         pending = left;
     }
 
-    let packed_units: usize = containers
-        .iter()
-        .map(|c: &ContainerPlan| c.placements.len())
-        .sum();
+    let packed_units: usize = containers.iter().map(|c: &ContainerPlan| c.placements.len()).sum();
     let used_volume: f64 = containers.len() as f64 * c.volume();
-    let packed_volume: f64 = containers
-        .iter()
-        .flat_map(|c| &c.placements)
-        .map(|p| p.shape.volume())
-        .sum();
+    let packed_volume: f64 = containers.iter().flat_map(|c| &c.placements).map(|p| p.shape.volume()).sum();
     PackResult {
         schema: PLAN_SCHEMA.to_string(),
         containers,
         unpacked,
         requested_units: instances.len(),
         packed_units,
-        volume_utilization: if used_volume > 0.0 {
-            packed_volume / used_volume
-        } else {
-            0.0
-        },
+        volume_utilization: if used_volume > 0.0 { packed_volume / used_volume } else { 0.0 },
         elapsed_ms: t0.elapsed().as_millis() as u64,
     }
 }
 
-fn finish_container(
-    req: &PackRequest,
-    instances: &[Instance],
-    state: &ContainerState,
-    index: usize,
-) -> ContainerPlan {
+fn finish_container(req: &PackRequest, instances: &[Instance], state: &ContainerState, index: usize) -> ContainerPlan {
     let c = &req.container;
     let placements: Vec<Placement> = state
         .placed
@@ -284,11 +243,7 @@ fn finish_container(
     let metrics = validate::compute_metrics(c, &placements);
     let violations = validate::validate(c, &req.items, &req.options, &placements);
     let report = validate::transport_report(c, &req.items, &req.options, &placements);
-    for ((p, s), im) in placements
-        .iter_mut()
-        .zip(report.securing)
-        .zip(report.impact)
-    {
+    for ((p, s), im) in placements.iter_mut().zip(report.securing).zip(report.impact) {
         p.securing = s;
         p.impact = im;
     }
