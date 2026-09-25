@@ -10,7 +10,10 @@ pub struct SupportInfo {
     pub contact_area: f64,
 }
 
-pub fn compute_supports<'a>(body: &Body, others: impl IntoIterator<Item = (usize, Body<'a>)>) -> SupportInfo {
+pub fn compute_supports<'a>(
+    body: &Body,
+    others: impl IntoIterator<Item = (usize, Body<'a>)>,
+) -> SupportInfo {
     let mut points = Vec::new();
     let mut owners = Vec::new();
     let mut area = 0.0;
@@ -31,7 +34,10 @@ pub fn compute_supports<'a>(body: &Body, others: impl IntoIterator<Item = (usize
         owners.extend(std::iter::repeat_n(Support::Item(j), pts.len()));
         points.extend(pts);
     }
-    SupportInfo { set: SupportSet::new(points, owners), contact_area: area }
+    SupportInfo {
+        set: SupportSet::new(points, owners),
+        contact_area: area,
+    }
 }
 
 /// Area of a flat bottom face, if the body has one.
@@ -81,7 +87,9 @@ fn blocked_along<'a>(body: &Body, k: usize, others: &[Body<'a>], container: [f64
     let other_axes: Vec<usize> = [0usize, 1, 2].into_iter().filter(|&a| a != k).collect();
     for o in others {
         let (omn, omx) = (o.min, o.max());
-        let side_by_side = other_axes.iter().all(|&a| omn[a] < mx[a] - tol::CONTACT && mn[a] < omx[a] - tol::CONTACT);
+        let side_by_side = other_axes
+            .iter()
+            .all(|&a| omn[a] < mx[a] - tol::CONTACT && mn[a] < omx[a] - tol::CONTACT);
         if !side_by_side {
             continue;
         }
@@ -96,12 +104,21 @@ fn blocked_along<'a>(body: &Body, k: usize, others: &[Body<'a>], container: [f64
 }
 
 /// Rolling state of `body` on `set`, given its neighbours and the container.
-pub fn roll_state<'a>(body: &Body, set: &SupportSet, others: impl IntoIterator<Item = Body<'a>>, container: [f64; 3], use_chocks: bool) -> Roll {
+pub fn roll_state<'a>(
+    body: &Body,
+    set: &SupportSet,
+    others: impl IntoIterator<Item = Body<'a>>,
+    container: [f64; 3],
+    use_chocks: bool,
+) -> Roll {
     if !body.shape.shape.can_roll() || set.is_empty() || !set.is_degenerate() {
         return Roll::NotApplicable;
     }
     let others: Vec<Body> = others.into_iter().collect();
-    if roll_axes(set).into_iter().all(|k| blocked_along(body, k, &others, container)) {
+    if roll_axes(set)
+        .into_iter()
+        .all(|k| blocked_along(body, k, &others, container))
+    {
         Roll::Blocked
     } else if use_chocks {
         Roll::NeedsChocks
@@ -148,7 +165,11 @@ fn nearest_on_hull(hull: &[Pt2], p: Pt2) -> Pt2 {
             let (a, b) = (hull[0], hull[1]);
             let (dx, dz) = (b.x - a.x, b.z - a.z);
             let len2 = dx * dx + dz * dz;
-            let t = if len2 > 0.0 { (((p.x - a.x) * dx + (p.z - a.z) * dz) / len2).clamp(0.0, 1.0) } else { 0.0 };
+            let t = if len2 > 0.0 {
+                (((p.x - a.x) * dx + (p.z - a.z) * dz) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             Pt2::new(a.x + t * dx, a.z + t * dz)
         }
     }

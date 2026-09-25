@@ -28,8 +28,44 @@ pub struct Placement {
     /// Round item on a line/point support that must be secured with wedges.
     #[serde(default)]
     pub needs_chocks: bool,
+    /// What it takes to secure this unit for the selected transport cases.
+    #[serde(default)]
+    pub securing: SecuringClass,
+    /// Worst transport load on this unit (none without transport cases).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<Impact>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+}
+
+/// How a unit is held in transport, from least to most effort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecuringClass {
+    /// Held by friction, walls and touching neighbours alone.
+    #[default]
+    Secured,
+    /// Held once the listed gaps next to it are filled with dunnage.
+    Dunnage,
+    /// A round item that must be wedged.
+    Chocks,
+    /// Needs lashing or extra blocking: a sliding or tipping force remains.
+    Lashing,
+    /// The dynamic load on top exceeds its stacking limit.
+    Overloaded,
+}
+
+/// Worst transport load on a unit, over every selected case and direction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Impact {
+    /// Force this unit must pass on to whatever blocks it: its own share that
+    /// friction cannot hold plus what the units behind push into it, kN.
+    pub force_kn: f64,
+    /// Demand over the unit's own resistance (friction for sliding, base width
+    /// for tipping). Above 1 it depends on blocking or lashing.
+    pub ratio: f64,
+    pub case: String,
+    pub direction: Direction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,18 +111,52 @@ pub struct Metrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Violation {
-    OutOfBounds { item: String },
-    Overlap { a: String, b: String, },
-    Unsupported { item: String },
-    Unstable { item: String, margin: f64, required: f64 },
-    InsufficientSupportArea { item: String, ratio: f64, required: f64 },
-    MayRoll { item: String },
-    Overloaded { item: String, load: f64, capacity: f64 },
-    NotOnFloor { item: String },
-    PayloadExceeded { mass: f64, max: f64 },
-    AxleOverloaded { axle: usize, load: f64, max: f64 },
-    CogOutOfLimits { detail: String },
-    OrientationNotAllowed { item: String },
+    OutOfBounds {
+        item: String,
+    },
+    Overlap {
+        a: String,
+        b: String,
+    },
+    Unsupported {
+        item: String,
+    },
+    Unstable {
+        item: String,
+        margin: f64,
+        required: f64,
+    },
+    InsufficientSupportArea {
+        item: String,
+        ratio: f64,
+        required: f64,
+    },
+    MayRoll {
+        item: String,
+    },
+    Overloaded {
+        item: String,
+        load: f64,
+        capacity: f64,
+    },
+    NotOnFloor {
+        item: String,
+    },
+    PayloadExceeded {
+        mass: f64,
+        max: f64,
+    },
+    AxleOverloaded {
+        axle: usize,
+        load: f64,
+        max: f64,
+    },
+    CogOutOfLimits {
+        detail: String,
+    },
+    OrientationNotAllowed {
+        item: String,
+    },
 }
 
 /// Direction of an acceleration acting on the cargo. Forward = towards the
@@ -128,6 +198,21 @@ pub struct TransportIssue {
 pub struct TransportResult {
     pub case: String,
     pub issues: Vec<TransportIssue>,
+    /// Gaps that must be filled with dunnage for the blocking to hold.
+    #[serde(default)]
+    pub gaps: Vec<GapFill>,
+}
+
+/// A gap between a unit and a wall (`other` = none) or another unit that is
+/// counted as blocking once filled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GapFill {
+    pub item: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub other: Option<String>,
+    /// Direction from `item` towards the gap.
+    pub direction: Direction,
+    pub gap_mm: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -57,13 +57,18 @@ export interface PhysicsOptions {
   default_friction: number;
   use_chocks: boolean;
   secure_load_end: boolean;
+  /** Gaps up to this size (mm) are filled with dunnage and then block. */
+  max_fill_gap: number;
+  /** Cargo-to-floor friction; null = the item's own value. */
+  floor_friction: number | null;
+  anti_slip_mats: boolean;
 }
 
 /** Same as the first Rust preset; used until the presets are loaded. */
 export const ROAD: TransportCase = { name: "Road (EN 12195-1)", forward: 0.8, backward: 0.5, sideways: 0.5, vertical_min: 1.0, vertical_max: 1.0 };
 
 export function defaultPhysics(): PhysicsOptions {
-  return { transport: [ROAD], check_sliding: true, check_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true };
+  return { transport: [ROAD], check_sliding: true, check_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true, max_fill_gap: 50, floor_friction: null, anti_slip_mats: false };
 }
 
 export interface ItemSpec {
@@ -139,7 +144,20 @@ export interface Placement {
   support_margin: number;
   stop: number;
   needs_chocks: boolean;
+  securing: SecuringClass;
+  impact?: Impact;
   color?: string;
+}
+
+export type SecuringClass = "secured" | "dunnage" | "chocks" | "lashing" | "overloaded";
+
+export interface Impact {
+  /** Force passed on to whatever blocks the unit, kN. */
+  force_kn: number;
+  /** Demand over own resistance (friction, base width); above 1 it relies on blocking or lashing. */
+  ratio: number;
+  case: string;
+  direction: Direction;
 }
 
 export interface Metrics {
@@ -171,6 +189,15 @@ export interface TransportIssue {
 export interface TransportResult {
   case: string;
   issues: TransportIssue[];
+  gaps: GapFill[];
+}
+
+export interface GapFill {
+  item: string;
+  /** Neighbour on the other side; absent = wall or load end. */
+  other?: string;
+  direction: Direction;
+  gap_mm: number;
 }
 
 export interface ContainerPlan {

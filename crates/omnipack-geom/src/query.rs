@@ -2,11 +2,13 @@
 
 use crate::hull2d::{clip_convex, polygon_area, Pt2};
 use crate::shape::{OrientedShape, Shape as ItemShape};
-use parry3d_f64::math::Isometry;
-use parry3d_f64::shape::{Cuboid, Shape};
 use crate::tol;
+use parry3d_f64::math::Isometry;
 use parry3d_f64::math::Vector;
-use parry3d_f64::query::{self, ContactManifold, DefaultQueryDispatcher, PersistentQueryDispatcher, ShapeCastOptions};
+use parry3d_f64::query::{
+    self, ContactManifold, DefaultQueryDispatcher, PersistentQueryDispatcher, ShapeCastOptions,
+};
+use parry3d_f64::shape::{Cuboid, Shape};
 
 /// An oriented shape placed with its AABB minimum corner at `min`.
 #[derive(Debug, Clone, Copy)]
@@ -37,11 +39,18 @@ impl<'a> Body<'a> {
     /// The flat horizontal face at the bottom or top, if the body has one,
     /// as its height and a convex world-space XZ polygon.
     fn flat_face(&self, top: bool) -> Option<(f64, Vec<Pt2>)> {
-        let face = if top { self.shape.top_face.as_ref()? } else { self.shape.bottom_face.as_ref()? };
+        let face = if top {
+            self.shape.top_face.as_ref()?
+        } else {
+            self.shape.bottom_face.as_ref()?
+        };
         let (mn, mx) = (self.min, self.max());
         let (cx, cz) = ((mn[0] + mx[0]) / 2.0, (mn[2] + mx[2]) / 2.0);
         let y = if top { mx[1] } else { mn[1] };
-        Some((y, face.iter().map(|p| Pt2::new(cx + p.x, cz + p.z)).collect()))
+        Some((
+            y,
+            face.iter().map(|p| Pt2::new(cx + p.x, cz + p.z)).collect(),
+        ))
     }
 }
 
@@ -52,7 +61,9 @@ fn aabbs_overlap(a: &Body, b: &Body, margin: f64) -> bool {
 
 fn footprints_overlap(a: &Body, b: &Body, margin: f64) -> bool {
     let (amin, amax, bmin, bmax) = (a.min, a.max(), b.min, b.max());
-    [0, 2].iter().all(|&k| amin[k] < bmax[k] - margin && bmin[k] < amax[k] - margin)
+    [0, 2]
+        .iter()
+        .all(|&k| amin[k] < bmax[k] - margin && bmin[k] < amax[k] - margin)
 }
 
 /// True if the two bodies interpenetrate by more than [`tol::PENETRATION`].
@@ -68,7 +79,9 @@ pub fn overlaps(a: &Body, b: &Body) -> bool {
     let (ga, gb) = (a.shape.parry().as_ref(), b.shape.parry().as_ref());
     // GJK can disagree with itself depending on argument order: ask both ways.
     let hit = |r: Result<bool, _>| r.unwrap_or(true);
-    if !hit(query::intersection_test(&pa, ga, &pb, gb)) && !hit(query::intersection_test(&pb, gb, &pa, ga)) {
+    if !hit(query::intersection_test(&pa, ga, &pb, gb))
+        && !hit(query::intersection_test(&pb, gb, &pa, ga))
+    {
         return false;
     }
     // EPA depth estimates can be asymmetric for some pairs: take the deeper one.
@@ -77,13 +90,19 @@ pub fn overlaps(a: &Body, b: &Body) -> bool {
         Ok(None) => 0.0,
         Err(_) => f64::INFINITY,
     };
-    let d = depth(query::contact(&pa, ga, &pb, gb, 0.0)).max(depth(query::contact(&pb, gb, &pa, ga, 0.0)));
+    let d = depth(query::contact(&pa, ga, &pb, gb, 0.0))
+        .max(depth(query::contact(&pb, gb, &pa, ga, 0.0)));
     d > tol::PENETRATION
 }
 
 /// Lowest `y` at which `moving` (min corner at `x`, `z`) rests when lowered from
 /// above onto `obstacles` or the floor. Never places the item under an overhang.
-pub fn drop_height<'a>(moving: &OrientedShape, x: f64, z: f64, obstacles: impl IntoIterator<Item = Body<'a>>) -> f64 {
+pub fn drop_height<'a>(
+    moving: &OrientedShape,
+    x: f64,
+    z: f64,
+    obstacles: impl IntoIterator<Item = Body<'a>>,
+) -> f64 {
     let probe = Body::new(moving, [x, 0.0, z]);
     let below: Vec<Body> = obstacles
         .into_iter()
@@ -167,7 +186,14 @@ pub fn support_contacts(upper: &Body, lower: &Body) -> Vec<SupportContact> {
             if polygon_area(&poly) <= tol::CONTACT * tol::CONTACT {
                 return Vec::new();
             }
-            return poly.into_iter().map(|p| SupportContact { x: p.x, y: yb, z: p.z }).collect();
+            return poly
+                .into_iter()
+                .map(|p| SupportContact {
+                    x: p.x,
+                    y: yb,
+                    z: p.z,
+                })
+                .collect();
         }
         if yb > yt {
             return Vec::new();
@@ -183,10 +209,18 @@ pub fn support_contacts(upper: &Body, lower: &Body) -> Vec<SupportContact> {
 }
 
 /// Contact points where shape 1 pushes down on shape 2.
-fn manifold_support_points(pos1: &Isometry<f64>, g1: &dyn Shape, pos2: &Isometry<f64>, g2: &dyn Shape) -> Vec<SupportContact> {
+fn manifold_support_points(
+    pos1: &Isometry<f64>,
+    g1: &dyn Shape,
+    pos2: &Isometry<f64>,
+    g2: &dyn Shape,
+) -> Vec<SupportContact> {
     let pos12 = pos1.inv_mul(pos2);
     let mut manifolds: Vec<ContactManifold<(), ()>> = Vec::new();
-    if DefaultQueryDispatcher.contact_manifolds(&pos12, g1, g2, tol::CONTACT, &mut manifolds, &mut None).is_err() {
+    if DefaultQueryDispatcher
+        .contact_manifolds(&pos12, g1, g2, tol::CONTACT, &mut manifolds, &mut None)
+        .is_err()
+    {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -200,7 +234,11 @@ fn manifold_support_points(pos1: &Isometry<f64>, g1: &dyn Shape, pos2: &Isometry
         for c in &m.points {
             if c.dist <= tol::CONTACT {
                 let p = sub1 * c.local_p1;
-                out.push(SupportContact { x: p.x, y: p.y, z: p.z });
+                out.push(SupportContact {
+                    x: p.x,
+                    y: p.y,
+                    z: p.z,
+                });
             }
         }
     }
@@ -213,17 +251,30 @@ pub fn floor_contacts(body: &Body) -> Vec<SupportContact> {
         return Vec::new();
     }
     if let Some((_, poly)) = body.flat_face(false) {
-        return poly.into_iter().map(|p| SupportContact { x: p.x, y: 0.0, z: p.z }).collect();
+        return poly
+            .into_iter()
+            .map(|p| SupportContact {
+                x: p.x,
+                y: 0.0,
+                z: p.z,
+            })
+            .collect();
     }
     // Curved or composite bottoms: contact manifold against a floor slab.
     const SLAB: f64 = 1e6;
     let floor = Cuboid::new(Vector::new(SLAB, 1.0, SLAB));
     let c = body.max();
-    let floor_iso = Isometry::translation((body.min[0] + c[0]) / 2.0, -1.0, (body.min[2] + c[2]) / 2.0);
-    manifold_support_points(&body.shape.isometry_at(body.min), body.shape.parry().as_ref(), &floor_iso, &floor)
-        .into_iter()
-        .map(|p| SupportContact { y: 0.0, ..p })
-        .collect()
+    let floor_iso =
+        Isometry::translation((body.min[0] + c[0]) / 2.0, -1.0, (body.min[2] + c[2]) / 2.0);
+    manifold_support_points(
+        &body.shape.isometry_at(body.min),
+        body.shape.parry().as_ref(),
+        &floor_iso,
+        &floor,
+    )
+    .into_iter()
+    .map(|p| SupportContact { y: 0.0, ..p })
+    .collect()
 }
 
 #[cfg(test)]
@@ -245,7 +296,14 @@ mod tests {
 
     #[test]
     fn box_drops_onto_lying_cylinder_ridge() {
-        let cyl = OrientedShape::new(&Shape::Cylinder { radius: 10.0, length: 50.0 }, Orientation::Hwd, [0.0; 3]);
+        let cyl = OrientedShape::new(
+            &Shape::Cylinder {
+                radius: 10.0,
+                length: 50.0,
+            },
+            Orientation::Hwd,
+            [0.0; 3],
+        );
         let b = boxy(10.0, 10.0, 10.0);
         let placed = [Body::new(&cyl, [0.0, 0.0, 0.0])];
         // Centred on the ridge: rests on top (y = 20).
@@ -259,18 +317,38 @@ mod tests {
     #[test]
     fn cylinder_lands_on_box_top() {
         let big = boxy(1400.0, 1300.0, 900.0);
-        let drum = OrientedShape::new(&Shape::Cylinder { radius: 290.0, length: 880.0 }, Orientation::Whd, [0.0; 3]);
+        let drum = OrientedShape::new(
+            &Shape::Cylinder {
+                radius: 290.0,
+                length: 880.0,
+            },
+            Orientation::Whd,
+            [0.0; 3],
+        );
         let placed = [Body::new(&big, [0.0, 0.0, 0.0])];
         assert!((drop_height(&drum, 0.0, 0.0, placed) - 1300.0).abs() < 1e-3);
-        let pipe = OrientedShape::new(&Shape::Cylinder { radius: 150.0, length: 1800.0 }, Orientation::Whd, [0.0; 3]);
+        let pipe = OrientedShape::new(
+            &Shape::Cylinder {
+                radius: 150.0,
+                length: 1800.0,
+            },
+            Orientation::Whd,
+            [0.0; 3],
+        );
         assert!((drop_height(&pipe, 0.0, 580.0, placed) - 1300.0).abs() < 1e-3);
     }
 
     #[test]
     fn cylinders_nest_in_groove() {
-        let s = Shape::Cylinder { radius: 10.0, length: 50.0 };
+        let s = Shape::Cylinder {
+            radius: 10.0,
+            length: 50.0,
+        };
         let c = OrientedShape::new(&s, Orientation::Hwd, [0.0; 3]);
-        let placed = [Body::new(&c, [0.0, 0.0, 0.0]), Body::new(&c, [0.0, 0.0, 20.0])];
+        let placed = [
+            Body::new(&c, [0.0, 0.0, 0.0]),
+            Body::new(&c, [0.0, 0.0, 20.0]),
+        ];
         let y = drop_height(&c, 0.0, 10.0, placed);
         // Centres form an equilateral triangle with side 20: height sqrt(300).
         let expect = 300f64.sqrt();
@@ -283,7 +361,10 @@ mod tests {
 
     #[test]
     fn overlap_is_exact_for_cylinders() {
-        let s = Shape::Cylinder { radius: 10.0, length: 10.0 };
+        let s = Shape::Cylinder {
+            radius: 10.0,
+            length: 10.0,
+        };
         let c = OrientedShape::new(&s, Orientation::Whd, [0.0; 3]);
         // AABBs overlap at the corners but the disks do not.
         let a = Body::new(&c, [0.0, 0.0, 0.0]);

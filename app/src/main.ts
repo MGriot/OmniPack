@@ -18,6 +18,7 @@ import {
   type Placement,
   type RenderMesh,
   type Shape,
+  type SecuringClass,
   type ShapeKind,
   type StopOrder,
   type TransportCase,
@@ -182,6 +183,32 @@ function capacityOf(itemId: string): number {
   return s.fragile ? 0 : (s.max_load_on_top ?? Infinity);
 }
 
+/** Friction of typical cargo on a vehicle floor (EN 12195-1:2010 Annex B, dry). */
+const FRICTION_PRESETS: [string, number][] = [
+  ["Sawn-wood pallet on plywood", 0.45],
+  ["Sawn-wood pallet on grooved aluminium", 0.4],
+  ["Sawn-wood pallet on steel sheet", 0.3],
+  ["Plastic pallet on plywood", 0.2],
+  ["Cardboard on wooden pallet / cardboard", 0.5],
+  ["Rough steel on sawn wood", 0.5],
+];
+const ANTI_SLIP_FRICTION = 0.6;
+
+const SECURING: [SecuringClass, string, string][] = [
+  ["lashing", "#ff5c6c", "needs lashing"],
+  ["overloaded", "#b565f0", "stack overloaded"],
+  ["chocks", "#f5b041", "needs chocks"],
+  ["dunnage", "#4aa3ff", "held once gaps are filled"],
+  ["secured", "#3ecf8e", "secured"],
+];
+
+/** Largest impact force in a container, kN (at least a tiny positive value). */
+function maxImpact(plan: ContainerPlan | null): number {
+  return Math.max(1e-9, ...(plan?.placements ?? []).map((p) => p.impact?.force_kn ?? 0));
+}
+
+const IMPACT_BUCKETS = ["< 25 %", "25–50 %", "50–75 %", "≥ 75 %"];
+
 /** Transport issues per unit id in the current container. */
 function issuesByItem(plan: ContainerPlan | null): Map<string, TransportIssue[]> {
   const m = new Map<string, TransportIssue[]>();
@@ -196,9 +223,11 @@ function groupOf(p: Placement): string {
   switch (colorMode()) {
     case "stop":
       return `stop:${p.stop}`;
-    case "securing": {
-      if (issuesByItem(currentPlan()).has(p.instance_id)) return "sec:needs";
-      return p.needs_chocks ? "sec:chocks" : "sec:ok";
+    case "securing":
+      return `sec:${p.securing ?? (p.needs_chocks ? "chocks" : "secured")}`;
+    case "impact": {
+      const t = (p.impact?.force_kn ?? 0) / maxImpact(currentPlan());
+      return `imp:${Math.min(3, Math.floor(t * 4))}`;
     }
     case "item":
       return `item:${p.item_id}`;
@@ -222,7 +251,9 @@ function colorFor(p: Placement): string {
       return heat(1 - Math.min(1, p.support_margin / (0.5 * half)));
     }
     case "securing":
-      return { "sec:needs": "#ff5c6c", "sec:chocks": "#f5b041", "sec:ok": "#3ecf8e" }[groupOf(p)] ?? "#3ecf8e";
+      return SECURING.find(([k]) => `sec:${k}` === groupOf(p))?.[1] ?? "#3ecf8e";
+    case "impact":
+      return p.impact ? heat(p.impact.force_kn / maxImpact(currentPlan())) : "#6b7280";
     default:
       return p.color ?? itemColor(p.item_id);
   }
@@ -259,11 +290,14 @@ function renderLegend() {
     for (const s of [...new Set(plan.placements.map((p) => p.stop))].sort((a, b) => a - b))
       legend.append(row(paletteColor(s), `${s === 0 ? "no stop" : `stop ${s}`} (${count(`stop:${s}`)})`, `stop:${s}`));
   } else if (mode === "securing") {
-    legend.append(
-      row("#ff5c6c", `needs securing (${count("sec:needs")})`, "sec:needs"),
-      row("#f5b041", `needs chocks (${count("sec:chocks")})`, "sec:chocks"),
-      row("#3ecf8e", `secured (${count("sec:ok")})`, "sec:ok"),
-    );
+    for (const [k, color, label] of SECURING) {
+      const n = count(`sec:${k}`);
+      if (n || k === "lashing" || k === "secured") legend.append(row(color, `${label} (${n})`, `sec:${k}`));
+    }
+  } else if (mode === "impact") {
+    const max = maxImpact(plan);
+    legend.append(h("div", { class: "hint" }, `Transport force per unit, max ${fmt(max, 2)} kN`));
+    IMPACT_BUCKETS.forEach((label, b) => legend.append(row(heat((b + 0.5) / 4), `${label} (${count(`imp:${b}`)})`, `imp:${b}`)));
   } else if (mode === "load") {
     legend.append(row(heat(0), "unloaded / no limit"), row(heat(0.5), "50% of limit"), row(heat(1), "at limit"), row("#6b7280", "fragile (nothing on top)"));
   } else {
@@ -271,7 +305,7 @@ function renderLegend() {
   }
   if (focusKeys.size) {
     legend.append(h("button", { class: "small", onclick: () => { focusKeys.clear(); applyFocus(); renderLegend(); } }, "Show all"));
-  } else if (["item", "stop", "securing"].includes(mode)) {
+  } else if (["item", "stop", "securing", "impact"].includes(mode)) {
     legend.append(h("p", { class: "hint" }, "Click an entry to isolate it"));
   }
 }
@@ -376,8 +410,21 @@ function renderEditor() {
       check("Dynamic stacking", () => ph.dynamic_stacking, (v) => (ph.dynamic_stacking = v), "Multiply loads on top by the vertical factor"),
       check("Chocks for round items", () => ph.use_chocks, (v) => (ph.use_chocks = v), "Lying drums and balls are held by wedges; off = they must be wedged in by neighbours"),
       check("Load end secured", () => ph.secure_load_end, (v) => (ph.secure_load_end = v), "A locking bar / gate / dunnage closes the open end of the load"),
+      check("Anti-slip mats", () => ph.anti_slip_mats, (v) => (ph.anti_slip_mats = v), `Rubber mats under every item and between layers: μ ≥ ${ANTI_SLIP_FRICTION}`),
     ),
+    (() => {
+      const sel = h("select", {}, h("option", { value: "" }, "Custom"), ...FRICTION_PRESETS.map(([name, mu]) => h("option", { value: String(mu) }, `${name} (μ ${mu})`))) as HTMLSelectElement;
+      sel.value = FRICTION_PRESETS.some(([, mu]) => mu === ph.default_friction) ? String(ph.default_friction) : "";
+      sel.addEventListener("change", () => {
+        if (!sel.value) return;
+        ph.default_friction = Number(sel.value);
+        renderEditor();
+        changed();
+      });
+      return h("label", { class: "field", title: "Typical dry values from EN 12195-1 Annex B; check them for your load" }, h("span", {}, "Cargo on floor"), sel);
+    })(),
     slider("Default friction μ", 0.1, 0.8, 0.05, () => ph.default_friction, (v) => (ph.default_friction = v)),
+    slider("Dunnage fills gaps up to", 0, 200, 5, () => ph.max_fill_gap, (v) => (ph.max_fill_gap = v), (v) => `${v.toFixed(0)} mm`),
 
     h(
       "h3",
@@ -523,7 +570,9 @@ function renderResults() {
   }
   const r = result;
   const valid = r.containers.every((c) => c.violations.length === 0);
-  const unsecured = r.containers.reduce((n, c) => n + new Set(c.transport.flatMap((t) => t.issues.map((i) => i.item))).size, 0);
+  const countClass = (k: SecuringClass) => r.containers.reduce((n, c) => n + c.placements.filter((p) => p.securing === k).length, 0);
+  const unsecured = countClass("lashing") + countClass("overloaded");
+  const dunnage = countClass("dunnage");
   const chocks = r.containers.reduce((n, c) => n + c.placements.filter((p) => p.needs_chocks).length, 0);
   panel.append(
     h("h3", {}, "Plan", h("span", { class: "spacer" }), stale ? h("span", { class: "badge warn" }, "out of date") : null),
@@ -532,8 +581,9 @@ function renderResults() {
       { class: "actions" },
       h("span", { class: `badge ${valid ? "ok" : "bad"}` }, valid ? "✓ Stable at rest" : "✗ Violations found"),
       req.options.physics.transport.length
-        ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} units need securing` : "✓ Secured for transport")
+        ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} units need lashing` : "✓ Secured for transport")
         : null,
+      dunnage ? h("span", { class: "badge" }, `${dunnage} held once gaps are filled`) : null,
       chocks ? h("span", { class: "badge warn" }, `${chocks} need chocks`) : null,
     ),
     stat("Units packed", `${r.packed_units} / ${r.requested_units}`),
@@ -561,18 +611,28 @@ function renderResults() {
     }
     for (const t of plan.transport) {
       const units = new Set(t.issues.map((i) => i.item)).size;
-      const total = t.issues.filter((i) => i.kind !== "stack_overload").reduce((m, i) => Math.max(m, i.required), 0);
+      const largest = t.issues.filter((i) => i.kind !== "stack_overload").reduce((m, i) => Math.max(m, i.required), 0);
       const shown = [...t.issues].sort((a, b) => b.required - a.required).slice(0, 12);
+      const gaps = t.gaps ?? [];
+      const gapTotal = gaps.reduce((s, g) => s + g.gap_mm, 0);
       panel.append(
         h("h3", {}, t.case, h("span", { class: "spacer" }), h("span", { class: `badge ${units ? "warn" : "ok"}` }, units ? `${units} units` : "OK")),
         units
           ? h(
               "div",
               {},
-              h("p", { class: "hint" }, `Largest single securing force: ${fmt(total, 2)} kN. Close gaps with dunnage or lash the listed units.`),
+              h("p", { class: "hint" }, `Largest single securing force: ${fmt(largest, 2)} kN. Lash or block the listed units.`),
               h("ul", { class: "issue-list" }, ...shown.map((i) => h("li", {}, describeIssue(i))), t.issues.length > shown.length ? h("li", {}, `… ${t.issues.length - shown.length} more`) : null),
             )
-          : h("p", { class: "hint" }, "Nothing slides or tips: friction and blocking hold everything."),
+          : h("p", { class: "hint" }, gaps.length ? "Nothing slides or tips once the gaps below are filled." : "Nothing slides or tips: friction and blocking hold everything."),
+        gaps.length
+          ? h(
+              "details",
+              {},
+              h("summary", {}, `Fill ${gaps.length} gaps with dunnage (${fmt(gapTotal)} mm in total)`),
+              h("ul", { class: "issue-list" }, ...gaps.map((g) => h("li", {}, `${g.item} ${DIR_LABEL[g.direction]} → ${g.other ?? "wall / load end"}: ${fmt(g.gap_mm)} mm`))),
+            )
+          : "",
       );
     }
   }
@@ -592,6 +652,9 @@ function renderResults() {
       stat("Stability margin", Number.isFinite(p.support_margin) ? `${fmt(p.support_margin, 1)} mm` : "held by chocks"),
       stat("Stop", p.stop === 0 ? "—" : String(p.stop)),
       p.needs_chocks ? stat("Chocks", "required") : "",
+      p.securing ? stat("Securing", SECURING.find(([k]) => k === p.securing)?.[2] ?? p.securing) : "",
+      p.impact ? stat("Transport force", `${fmt(p.impact.force_kn, 2)} kN, ${DIR_LABEL[p.impact.direction]} (${p.impact.case})`) : "",
+      p.impact ? stat("Demand / own grip", `${fmt(p.impact.ratio, 2)}×${p.impact.ratio > 1 ? " — relies on blocking or lashing" : ""}`) : "",
       own.length ? h("ul", { class: "issue-list" }, ...own.map((i) => h("li", {}, describeIssue(i)))) : "",
     );
   }

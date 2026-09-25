@@ -74,7 +74,11 @@ impl ItemSpec {
             .into_iter()
             .filter(|o| allow_rotation || *o == Orientation::Whd)
             .filter(|o| !self.upright_only || o.keeps_upright())
-            .filter(|o| self.allowed_orientations.as_ref().is_none_or(|a| a.contains(o)))
+            .filter(|o| {
+                self.allowed_orientations
+                    .as_ref()
+                    .is_none_or(|a| a.contains(o))
+            })
             .collect()
     }
 }
@@ -203,8 +207,22 @@ pub struct TransportCase {
 }
 
 impl TransportCase {
-    fn new(name: &str, forward: f64, backward: f64, sideways: f64, vertical_min: f64, vertical_max: f64) -> Self {
-        TransportCase { name: name.into(), forward, backward, sideways, vertical_min, vertical_max }
+    fn new(
+        name: &str,
+        forward: f64,
+        backward: f64,
+        sideways: f64,
+        vertical_min: f64,
+        vertical_max: f64,
+    ) -> Self {
+        TransportCase {
+            name: name.into(),
+            forward,
+            backward,
+            sideways,
+            vertical_min,
+            vertical_max,
+        }
     }
 
     /// Built-in profiles. Values follow EN 12195-1:2010 (road) and the CTU
@@ -242,7 +260,20 @@ pub struct PhysicsOptions {
     /// The open face of a partial load is closed with a locking bar, gate or
     /// dunnage, which blocks like a wall.
     pub secure_load_end: bool,
+    /// Gaps up to this size (mm) between an item and a wall or a neighbour are
+    /// filled with dunnage or airbags and then block like direct contact. They
+    /// are listed in the transport report. 0 = only touching faces block.
+    pub max_fill_gap: f64,
+    /// Friction between cargo and the container floor. `None` = the item's own
+    /// value (or `default_friction`).
+    pub floor_friction: Option<f64>,
+    /// Anti-slip mats under every item and between layers: every contact has at
+    /// least μ = [`ANTI_SLIP_FRICTION`].
+    pub anti_slip_mats: bool,
 }
+
+/// Friction of rubber anti-slip mats (EN 12195-1 Annex B, typical value).
+pub const ANTI_SLIP_FRICTION: f64 = 0.6;
 
 impl Default for PhysicsOptions {
     fn default() -> Self {
@@ -254,6 +285,9 @@ impl Default for PhysicsOptions {
             default_friction: 0.4,
             use_chocks: true,
             secure_load_end: true,
+            max_fill_gap: 50.0,
+            floor_friction: None,
+            anti_slip_mats: false,
         }
     }
 }

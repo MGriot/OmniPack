@@ -49,7 +49,11 @@ pub fn convex_hull(points: &[Pt2]) -> Vec<Pt2> {
 fn dist_point_segment(p: Pt2, a: Pt2, b: Pt2) -> f64 {
     let (dx, dz) = (b.x - a.x, b.z - a.z);
     let len2 = dx * dx + dz * dz;
-    let t = if len2 > 0.0 { (((p.x - a.x) * dx + (p.z - a.z) * dz) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if len2 > 0.0 {
+        (((p.x - a.x) * dx + (p.z - a.z) * dz) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let (cx, cz) = (a.x + t * dx, a.z + t * dz);
     ((p.x - cx).powi(2) + (p.z - cz).powi(2)).sqrt()
 }
@@ -154,7 +158,13 @@ pub fn polygon_area(poly: &[Pt2]) -> f64 {
 
 /// CCW rectangle `[x0,x1] × [z0,z1]`.
 pub fn rect(x0: f64, z0: f64, x1: f64, z1: f64) -> Vec<Pt2> {
-    vec![Pt2::new(x0, z0), Pt2::new(x1, z0), Pt2::new(x1, z1), Pt2::new(x0, z1)].pipe_ccw()
+    vec![
+        Pt2::new(x0, z0),
+        Pt2::new(x1, z0),
+        Pt2::new(x1, z1),
+        Pt2::new(x0, z1),
+    ]
+    .pipe_ccw()
 }
 
 /// Regular polygon inscribed in a circle (conservative stand-in for a disk).
