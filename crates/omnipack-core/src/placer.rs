@@ -36,8 +36,6 @@ pub struct Instance {
 /// Score weight per g of tipping deficit: strong enough to lay slender items
 /// down when the physics options ask for transport safety.
 const TIP_WEIGHT: f64 = 0.3;
-/// Score bonus for being blocked on all four sides (walls or neighbours).
-const CONTACT_BONUS: f64 = 4e-3;
 
 /// Tipping deficit of `shape` standing alone on its bottom face under the
 /// selected transport cases, in g (0 = resists every case by itself).
@@ -90,6 +88,8 @@ pub struct ContainerState<'a> {
     mass: f64,
     moment_x: f64,
     scratch: Vec<u32>,
+    /// Smallest footprint side of any unit: narrower gaps stay empty.
+    min_dim: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +148,7 @@ impl<'a> ContainerState<'a> {
             mass: 0.0,
             moment_x: 0.0,
             scratch: Vec::new(),
+            min_dim: if min_dim.is_finite() { min_dim } else { 0.0 },
         };
         for p in [[0.0, 0.0], [spec.width, 0.0], [0.0, spec.depth], [spec.width, spec.depth]] {
             st.add_anchor(p);
@@ -208,11 +209,8 @@ impl<'a> ContainerState<'a> {
             let com_x = if m > 0.0 { (self.moment_x + inst.mass * cx) / m } else { x + w / 2.0 };
             s += self.opts.balance_weight * 1e-2 * (com_x - c.width / 2.0).abs() / c.width;
         }
-        let cw = self.contact_weight();
-        if cw > 0.0 {
-            s -= cw * self.blocked_sides(shape, [x, y, z]) as f64 / 4.0;
-        }
-        s
+        let tie = self.tie_breaks(shape, [x, y, z]);
+        s - tie
     }
 
     /// Lower bound of `score` for any `y ≥ 0`.
@@ -220,7 +218,7 @@ impl<'a> ContainerState<'a> {
         let c = self.spec;
         let nz = self.depth_term(inst, z, inst.shapes[orient].extents[2]);
         let [wx, _, wz] = self.opts.bias.weights();
-        wx * x / c.width + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] - self.contact_weight()
+        wx * x / c.width + wz * nz + TIP_WEIGHT * inst.tip_deficit[orient] - self.max_tie_break()
     }
 
     /// Resting height, and whether the item would then sit on the top of a
@@ -243,42 +241,66 @@ impl<'a> ContainerState<'a> {
         (y, on_fragile)
     }
 
-    /// Number of sides (±x, ±z) touching a wall or a neighbour, or within the
-    /// dunnage fill gap of one: blocked sides keep cargo from sliding in transport.
-    fn blocked_sides(&mut self, shape: &OrientedShape, min: [f64; 3]) -> usize {
+    /// Per side (−x, +x, −z, +z): the gap to the nearest wall or same-layer
+    /// neighbour facing it, and the fraction of the side face in contact.
+    fn sides(&mut self, shape: &OrientedShape, min: [f64; 3]) -> ([f64; 4], [f64; 4], bool) {
         let e = shape.extents;
         let max = [min[0] + e[0], min[1] + e[1], min[2] + e[2]];
         let size = [self.spec.width, self.spec.height, self.spec.depth];
-        let fill = self.opts.physics.max_fill_gap.max(tol::CONTACT);
-        let ids = self.neighbours(min[0] - fill, min[2] - fill, max[0] + fill, max[2] + fill);
-        let mut sides = [min[0] <= fill, max[0] >= size[0] - fill, min[2] <= fill, max[2] >= size[2] - fill];
-        let near = |gap: f64| (-tol::CONTACT..=fill).contains(&gap);
+        let reach = self.opts.physics.max_fill_gap.max(self.min_dim).max(tol::CONTACT);
+        let ids = self.neighbours(min[0] - reach, min[2] - reach, max[0] + reach, max[2] + reach);
+        let mut gap = [min[0], size[0] - max[0], min[2], size[2] - max[2]];
+        let mut touch = gap.map(|g| if g <= tol::CONTACT { 1.0 } else { 0.0 });
+        let mut flat = false;
+        let face = [e[1] * e[2], e[1] * e[2], e[1] * e[0], e[1] * e[0]];
         for i in ids {
             let b = self.body(i);
             let (omn, omx) = (b.min, b.max());
-            let over = |k: usize| omn[k] < max[k] - tol::CONTACT && min[k] < omx[k] - tol::CONTACT;
-            if !over(1) {
+            let over = |k: usize| (max[k].min(omx[k]) - min[k].max(omn[k])).max(0.0);
+            let hy = over(1);
+            if hy <= tol::CONTACT {
                 continue;
             }
-            if over(2) {
-                sides[0] |= near(min[0] - omx[0]);
-                sides[1] |= near(omn[0] - max[0]);
-            }
-            if over(0) {
-                sides[2] |= near(min[2] - omx[2]);
-                sides[3] |= near(omn[2] - max[2]);
+            for (side, k, g) in [(0, 0, min[0] - omx[0]), (1, 0, omn[0] - max[0]), (2, 2, min[2] - omx[2]), (3, 2, omn[2] - max[2])] {
+                let across = over(2 - k);
+                if across <= tol::CONTACT || g < -tol::CONTACT {
+                    continue;
+                }
+                gap[side] = gap[side].min(g.max(0.0));
+                if g <= tol::CONTACT {
+                    touch[side] += across * hy / face[side];
+                    flat |= (omx[1] - max[1]).abs() <= tol::CONTACT;
+                }
             }
         }
-        sides.iter().filter(|s| **s).count()
+        (gap, touch.map(|t| t.min(1.0)), flat)
     }
 
-    fn contact_weight(&self) -> f64 {
-        let ph = &self.opts.physics;
-        if ph.check_sliding && !ph.transport.is_empty() {
-            CONTACT_BONUS
-        } else {
-            0.0
+    /// Secondary score terms, subtracted from the score (bigger = better).
+    fn tie_breaks(&mut self, shape: &OrientedShape, min: [f64; 3]) -> f64 {
+        let w = self.opts.weights;
+        let (gap, touch, flat) = self.sides(shape, min);
+        let fill = self.opts.physics.max_fill_gap.max(tol::CONTACT);
+        let mut t = w.contact_area * touch.iter().sum::<f64>() / 4.0;
+        if self.transport_checked() {
+            t += w.blocking * gap.iter().filter(|g| **g <= fill).count() as f64 / 4.0;
         }
+        t -= w.dead_gap * gap.iter().filter(|g| **g > fill && **g < self.min_dim - tol::CONTACT).count() as f64 / 4.0;
+        if flat {
+            t += w.flat_top;
+        }
+        t
+    }
+
+    /// Largest possible value of [`Self::tie_breaks`].
+    fn max_tie_break(&self) -> f64 {
+        let w = self.opts.weights;
+        w.contact_area + w.flat_top + if self.transport_checked() { w.blocking } else { 0.0 }
+    }
+
+    fn transport_checked(&self) -> bool {
+        let ph = &self.opts.physics;
+        ph.check_sliding && !ph.transport.is_empty()
     }
 
     /// Tries to place instance `inst`. Returns `true` on success.
@@ -477,6 +499,24 @@ impl<'a> ContainerState<'a> {
             [cw, z0], [cw, z1], [x0, cd], [x1, cd],
         ] {
             self.add_anchor(p);
+        }
+        // Extreme points (Crainic et al. 2008): also slide the far corners
+        // towards the back and left walls until they meet another item, so
+        // pockets between items get candidate positions too.
+        for [px, pz] in [[x1, z0], [x0, z1], [x1, z1]] {
+            let (mut ex, mut ez) = (0.0f64, 0.0f64);
+            for q in self.placed.iter().take(id) {
+                let e = self.instances[q.inst].shapes[q.orient].extents;
+                let (qx1, qz1) = (q.min[0] + e[0], q.min[2] + e[2]);
+                if q.min[2] <= pz + tol::CONTACT && pz < qz1 - tol::CONTACT && qx1 <= px + tol::CONTACT {
+                    ex = ex.max(qx1);
+                }
+                if q.min[0] <= px + tol::CONTACT && px < qx1 - tol::CONTACT && qz1 <= pz + tol::CONTACT {
+                    ez = ez.max(qz1);
+                }
+            }
+            self.add_anchor([ex.min(px), pz]);
+            self.add_anchor([px, ez.min(pz)]);
         }
     }
 }

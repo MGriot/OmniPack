@@ -294,6 +294,34 @@ pub struct PackOptions {
     /// Stop after checking this many ranked candidates per item.
     pub max_stability_checks: usize,
     pub seed: u64,
+    /// Tie-break weights of the placement score.
+    pub weights: ScoreWeights,
+}
+
+/// Secondary terms of the placement score. The fill pattern decides the main
+/// direction (weight 1 per container length); these break ties between
+/// positions that are about equally far along it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScoreWeights {
+    /// Reward for the fraction of the four side faces touching walls or items
+    /// (denser, more interlocked packings).
+    pub contact_area: f64,
+    /// Reward for sides blocked against sliding, directly or across a
+    /// fillable gap (only when transport checks are on).
+    pub blocking: f64,
+    /// Penalty per side that leaves a gap wider than the dunnage limit but
+    /// narrower than the smallest unit: space nothing can use.
+    pub dead_gap: f64,
+    /// Reward for a top level with a touching neighbour's top: flat surfaces
+    /// for the next layer.
+    pub flat_top: f64,
+}
+
+impl Default for ScoreWeights {
+    fn default() -> Self {
+        ScoreWeights { contact_area: 4e-3, blocking: 4e-3, dead_gap: 4e-3, flat_top: 2e-3 }
+    }
 }
 
 impl Default for PackOptions {
@@ -310,6 +338,7 @@ impl Default for PackOptions {
             max_containers: 50,
             max_stability_checks: 5000,
             seed: 0,
+            weights: ScoreWeights::default(),
         }
     }
 }

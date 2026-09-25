@@ -6,11 +6,12 @@
 //! omnipack gen mixed|shapes <seed> [-o request.json]
 //! omnipack thpack <thpackN.txt> <problem 1..> [-o request.json]
 //! omnipack bench [instances-per-class]
+//!   (OMNIPACK_WEIGHTS=contact,blocking,dead_gap,flat_top overrides the score weights)
 //! ```
 
 use omnipack_core::generate;
 
-use omnipack_core::{pack, PackRequest, PackResult};
+use omnipack_core::{pack, PackRequest, PackResult, SecuringClass};
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
@@ -116,23 +117,35 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         Some("bench") => {
             let per_class: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
-            println!("class  instances  avg_util%  min_util%  avg_ms  all_valid");
+            println!("class  instances  avg_util%  min_util%  lashing%  dunnage_mm  avg_ms  all_valid");
             for class in 1..=7 {
                 let (mut sum, mut min, mut ms, mut valid) = (0.0, f64::INFINITY, 0u64, true);
+                let (mut lashing, mut units, mut dunnage) = (0usize, 0usize, 0.0);
                 for seed in 1..=per_class {
                     let mut req = generate::br_like(class, seed).unwrap();
                     req.options.max_containers = 1;
+                    if let Ok(w) = std::env::var("OMNIPACK_WEIGHTS") {
+                        let v: Vec<f64> = w.split(',').filter_map(|s| s.parse().ok()).collect();
+                        req.options.weights = omnipack_core::ScoreWeights { contact_area: v[0], blocking: v[1], dead_gap: v[2], flat_top: v[3] };
+                    }
                     let r = pack(&req).map_err(|e| e.to_string())?;
                     let u = r.containers.first().map_or(0.0, |c| c.metrics.volume_utilization);
                     sum += u;
                     min = min.min(u);
                     ms += r.elapsed_ms;
                     valid &= r.is_valid();
+                    for c in &r.containers {
+                        units += c.placements.len();
+                        lashing += c.placements.iter().filter(|p| p.securing >= SecuringClass::Lashing).count();
+                        dunnage += c.transport.iter().flat_map(|t| &t.gaps).map(|g| g.gap_mm).sum::<f64>();
+                    }
                 }
                 println!(
-                    "BR{class:<4} {per_class:>9}  {:>9.2}  {:>9.2}  {:>6}  {valid}",
+                    "BR{class:<4} {per_class:>9}  {:>9.2}  {:>9.2}  {:>8.1}  {:>10.0}  {:>6}  {valid}",
                     sum / per_class as f64 * 100.0,
                     min * 100.0,
+                    lashing as f64 / units.max(1) as f64 * 100.0,
+                    dunnage / per_class as f64,
                     ms / per_class
                 );
             }
