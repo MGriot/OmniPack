@@ -4,7 +4,7 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
-## [Unreleased]
+## [0.3.0] - 2026-09-25
 
 ### Fixed
 - **"Everything needs securing":** blocking chains required faces within 0.05 mm, so
