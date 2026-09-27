@@ -232,6 +232,10 @@ pub struct PhysicsOptions {
     pub check_sliding: bool,
     /// Report items that would tip unless blocked or lashed.
     pub check_tipping: bool,
+    /// Treat tipping in transport as a placement constraint: positions and
+    /// orientations that would tip unless lashed are rejected. A unit with no
+    /// other way to fit is still loaded and reported as needing lashing.
+    pub avoid_tipping: bool,
     /// Multiply loads on top by the vertical factor when checking stack limits.
     pub dynamic_stacking: bool,
     /// Friction coefficient for items that do not set their own.
@@ -263,6 +267,7 @@ impl Default for PhysicsOptions {
             transport: vec![TransportCase::presets().remove(0)],
             check_sliding: true,
             check_tipping: true,
+            avoid_tipping: true,
             dynamic_stacking: false,
             default_friction: 0.4,
             use_chocks: true,

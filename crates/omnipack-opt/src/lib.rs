@@ -13,7 +13,8 @@
 //!    change one orientation or the fill pattern).
 //!
 //! Every plan is built by the same placer and re-checked by the independent
-//! validator; plans with violations are discarded. Loading constraints
+//! validator; plans with violations are discarded, and plans where fewer
+//! units would tip in transport beat denser ones. Loading constraints
 //! (stops, zones, floor-only units) are kept by only reordering units within
 //! the same [`load_group`].
 
@@ -89,7 +90,8 @@ impl Default for OptimizeOptions {
 }
 
 /// Quality of one plan. Compared by whether every unit is packed, then by
-/// containers used, then by `value` (which rewards packed volume, so when not
+/// containers used, then by units that would tip in transport (fewer first),
+/// then by `value` (which rewards packed volume, so when not
 /// everything fits, more cargo wins).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Score {
@@ -99,6 +101,8 @@ pub struct Score {
     /// Weighted objective (higher is better).
     pub value: f64,
     pub volume_utilization: f64,
+    /// Units that would tip in transport unless lashed.
+    pub tipping_units: usize,
     /// Units that need lashing or are overloaded in transport.
     pub lashing_units: usize,
     /// Sum over those units of the largest securing force, kN.
@@ -113,6 +117,14 @@ impl Score {
     pub fn of(r: &PackResult, obj: &Objective) -> Score {
         let placements = || r.containers.iter().flat_map(|c| &c.placements);
         let lashing: Vec<&str> = placements().filter(|p| p.securing >= SecuringClass::Lashing).map(|p| p.instance_id.as_str()).collect();
+        let tipping: std::collections::HashSet<&str> = r
+            .containers
+            .iter()
+            .flat_map(|c| &c.transport)
+            .flat_map(|t| &t.issues)
+            .filter(|i| i.kind == IssueKind::Tipping)
+            .map(|i| i.item.as_str())
+            .collect();
         let mut force: HashMap<&str, f64> = HashMap::new();
         for i in r.containers.iter().flat_map(|c| &c.transport).flat_map(|t| &t.issues) {
             if i.kind != IssueKind::StackOverload {
@@ -136,6 +148,7 @@ impl Score {
             containers: r.containers.len(),
             value,
             volume_utilization: r.volume_utilization,
+            tipping_units: tipping.len(),
             lashing_units: lashing.len(),
             lashing_kn: force.values().sum(),
             dunnage_mm,
@@ -147,6 +160,7 @@ impl Score {
         self.all_packed
             .cmp(&o.all_packed)
             .then(o.containers.cmp(&self.containers))
+            .then(o.tipping_units.cmp(&self.tipping_units))
             .then(self.value.total_cmp(&o.value))
             .is_gt()
     }
@@ -495,6 +509,7 @@ fn worst() -> Score {
         containers: usize::MAX,
         value: f64::NEG_INFINITY,
         volume_utilization: 0.0,
+        tipping_units: usize::MAX,
         lashing_units: 0,
         lashing_kn: 0.0,
         dunnage_mm: 0.0,

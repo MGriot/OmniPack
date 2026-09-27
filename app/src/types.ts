@@ -53,6 +53,8 @@ export interface PhysicsOptions {
   transport: TransportCase[];
   check_sliding: boolean;
   check_tipping: boolean;
+  /** Reject positions that would tip in transport; units with no alternative are loaded and flagged for lashing. */
+  avoid_tipping: boolean;
   dynamic_stacking: boolean;
   default_friction: number;
   use_chocks: boolean;
@@ -68,7 +70,7 @@ export interface PhysicsOptions {
 export const ROAD: TransportCase = { name: "Road (EN 12195-1)", forward: 0.8, backward: 0.5, sideways: 0.5, vertical_min: 1.0, vertical_max: 1.0 };
 
 export function defaultPhysics(): PhysicsOptions {
-  return { transport: [ROAD], check_sliding: true, check_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true, max_fill_gap: 50, floor_friction: null, anti_slip_mats: false };
+  return { transport: [ROAD], check_sliding: true, check_tipping: true, avoid_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true, max_fill_gap: 50, floor_friction: null, anti_slip_mats: false };
 }
 
 export interface ItemSpec {
@@ -303,10 +305,23 @@ export interface Score {
   containers: number;
   value: number;
   volume_utilization: number;
+  /** Units that would tip in transport unless lashed. */
+  tipping_units: number;
   lashing_units: number;
   lashing_kn: number;
   dunnage_mm: number;
   min_margin: number | null;
+}
+
+/** An item on its own (unrotated), for the preview in its card. */
+export interface ItemPreview {
+  mesh: RenderMesh;
+  /** Bounding box W, H, D, mm. */
+  extents: [number, number, number];
+  /** Uniform-density centre of mass, from the min corner, mm. */
+  centroid: [number, number, number];
+  /** Centre of mass including `com_offset`, from the min corner, mm. */
+  com: [number, number, number];
 }
 
 export interface Solution {

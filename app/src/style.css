@@ -69,6 +69,16 @@ h3 .spacer { flex: 1; }
 
 .card { background: var(--panel-2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 8px; margin-bottom: 8px; }
 .card-head { display: grid; grid-template-columns: 34px 1fr 96px 24px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.card-body { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: start; }
+.card-body .grid { grid-template-columns: 1fr 1fr; }
+.card-body .grid > span:empty { display: none; }
+.preview-box { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.item-preview { width: 96px; height: 96px; border-radius: var(--radius); border: 1px solid var(--border); cursor: grab; touch-action: none; }
+.item-preview:active { cursor: grabbing; }
+.dims { color: var(--muted); font-size: 10px; text-align: center; }
+.com-row { margin-top: 6px; }
+.com-title { color: var(--muted); font-size: 11px; }
+.grid.com { grid-template-columns: 1fr 1fr 1fr 28px; align-items: end; }
 
 #stage { position: relative; min-width: 0; }
 #canvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }

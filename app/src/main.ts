@@ -13,6 +13,7 @@ import {
   type Direction,
   type FillBias,
   type ItemSpec,
+  type ItemPreview,
   type LoadPriority,
   type Objective,
   type OptimizeResult,
@@ -31,6 +32,7 @@ import {
   type TransportIssue,
   type Zone,
 } from "./types";
+import { previewCanvas, prunePreviews } from "./preview";
 import { PlanViewer } from "./viewer";
 
 // ---------- state ----------
@@ -452,6 +454,7 @@ function renderEditor() {
       { class: "checks" },
       check("Sliding", () => ph.check_sliding, (v) => (ph.check_sliding = v), "Friction vs acceleration, unless blocked by walls or neighbours"),
       check("Tipping", () => ph.check_tipping, (v) => (ph.check_tipping = v), "Tipping moment vs restoring moment, unless blocked above the CoG"),
+      check("Avoid tipping", () => ph.avoid_tipping, (v) => (ph.avoid_tipping = v), "Never place a unit where it would tip in transport (e.g. lay slender items down). A unit with no other way to fit is still loaded and flagged for lashing."),
       check("Dynamic stacking", () => ph.dynamic_stacking, (v) => (ph.dynamic_stacking = v), "Multiply loads on top by the vertical factor"),
       check("Chocks for round items", () => ph.use_chocks, (v) => (ph.use_chocks = v), "Lying drums and balls are held by wedges; off = they must be wedged in by neighbours"),
       check("Load end secured", () => ph.secure_load_end, (v) => (ph.secure_load_end = v), "A locking bar / gate / dunnage closes the open end of the load"),
@@ -487,6 +490,7 @@ function renderEditor() {
     ),
     ...req.items.map(itemCard),
   );
+  prunePreviews(req.items);
 }
 
 function addItem(kind: ShapeKind) {
@@ -558,11 +562,42 @@ function itemCard(it: ItemSpec, index: number): HTMLElement {
 
   const s = it.shape;
   const roundish = s.kind === "cylinder" || s.kind === "sphere";
+  // Centre of mass as X/Y/Z from the base corner; filled in once the preview
+  // knows the item's box and uniform centre (the engine stores the offset).
+  const comRow = h("div", { class: "com-row" });
+  const fillCom = (info: ItemPreview) => {
+    const axis = (k: number, label: string) =>
+      num(label, () => (it.com_offset[k] === 0 ? null : Math.round((info.centroid[k] + it.com_offset[k]) * 10) / 10), (v) => {
+        it.com_offset[k] = v === null ? 0 : Math.min(info.extents[k], Math.max(0, v)) - info.centroid[k];
+      }, { nullable: true, min: 0, max: info.extents[k], placeholder: String(Math.round(info.centroid[k])) });
+    const reset = h("button", { type: "button", class: "small", title: "Back to the geometric centre of mass", onclick: () => {
+      it.com_offset = [0, 0, 0];
+      changed();
+      preview.refresh();
+    } }, "↺");
+    comRow.replaceChildren(
+      h("span", { class: "com-title", title: "Measured from the bottom-left-back corner of the unrotated item (Y = height above its base). Empty = geometric centre." }, "Centre of mass, mm from base corner"),
+      h("div", { class: "grid com" }, axis(0, "X (W)"), axis(1, "Y (H)"), axis(2, "Z (D)"), reset),
+    );
+  };
+  const dims = h("small", { class: "dims" });
+  let comFor = "";
+  const preview = previewCanvas(it, it.color ?? paletteColor(index), (info) => {
+    dims.textContent = info.extents.map((e) => fmt(e, 0)).join(" × ") + " mm";
+    // Rebuild the inputs only when the box changed, so typing keeps focus.
+    const key = JSON.stringify([info.extents, info.centroid]);
+    if (s.kind !== "sphere" && key !== comFor) {
+      comFor = key;
+      fillCom(info);
+    }
+  });
   return h(
     "div",
-    { class: "card", style: `border-left-color:${it.color ?? paletteColor(index)}` },
+    { class: "card", style: `border-left-color:${it.color ?? paletteColor(index)}`, onchange: () => preview.refresh() },
     h("div", { class: "card-head" }, color, idInput, shapeSel, remove),
-    h(
+    h("div", { class: "card-body" },
+      h("div", { class: "preview-box" }, preview.canvas, dims),
+      h(
       "div",
       { class: "grid" },
       ...shapeFields(s),
@@ -572,7 +607,9 @@ function itemCard(it: ItemSpec, index: number): HTMLElement {
       num("Stop (1 = first off)", () => it.stop, (v) => (it.stop = Math.max(0, Math.round(v ?? 0))), { min: 0, step: "1" }),
       select<Zone>("Zone", [["any", "Anywhere"], ["back", "Back"], ["front", "Near door"]], () => it.zone, (v) => (it.zone = v)),
       num("Friction μ", () => it.friction, (v) => (it.friction = v === null ? null : Math.max(0, v)), { nullable: true, min: 0, placeholder: String(req.options.physics.default_friction) }),
+      ),
     ),
+    comRow,
     h(
       "div",
       { class: "checks" },
@@ -608,7 +645,8 @@ function describeIssue(i: TransportIssue): string {
 
 function scoreLine(s: Score): string {
   const lash = s.lashing_units ? `${s.lashing_units} to lash (${fmt(s.lashing_kn, 1)} kN)` : "nothing to lash";
-  return `${fmt(s.volume_utilization * 100, 1)} % vol · ${s.containers} cont. · ${lash} · dunnage ${fmt(s.dunnage_mm / 1000, 2)} m`;
+  const tip = s.tipping_units ? `${s.tipping_units} may tip · ` : "";
+  return `${fmt(s.volume_utilization * 100, 1)} % vol · ${s.containers} cont. · ${tip}${lash} · dunnage ${fmt(s.dunnage_mm / 1000, 2)} m`;
 }
 
 /** The distinct plans a search returned, with the plain placer for comparison. */
@@ -653,6 +691,7 @@ function renderResults() {
   const unsecured = countClass("lashing") + countClass("overloaded");
   const dunnage = countClass("dunnage");
   const chocks = r.containers.reduce((n, c) => n + c.placements.filter((p) => p.needs_chocks).length, 0);
+  const tipping = new Set(r.containers.flatMap((c) => c.transport.flatMap((t) => t.issues.filter((i) => i.kind === "tipping").map((i) => i.item)))).size;
   panel.append(
     h("h3", {}, "Plan", h("span", { class: "spacer" }), stale ? h("span", { class: "badge warn" }, "out of date") : null),
     h(
@@ -662,6 +701,7 @@ function renderResults() {
       req.options.physics.transport.length
         ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} units need lashing` : "✓ Secured for transport")
         : null,
+      tipping ? h("span", { class: "badge warn", title: "No position without tipping was found for these units: lash them" }, `${tipping} would tip`) : null,
       dunnage ? h("span", { class: "badge" }, `${dunnage} held once gaps are filled`) : null,
       chocks ? h("span", { class: "badge warn" }, `${chocks} need chocks`) : null,
     ),
@@ -875,7 +915,7 @@ async function runSearch() {
   const unlisten = await listen<SearchProgress>("optimize-progress", (e) => {
     const p = e.payload;
     const left = Math.max(0, search.budget - (performance.now() - t0) / 1000);
-    setStatus(`${phaseName[p.phase]}: ${p.evaluated} plans, best ${fmt(p.best.volume_utilization * 100, 1)} % vol, ${p.best.lashing_units} to lash · ${left.toFixed(0)} s left`);
+    setStatus(`${phaseName[p.phase]}: ${p.evaluated} plans, best ${fmt(p.best.volume_utilization * 100, 1)} % vol, ${p.best.tipping_units} may tip, ${p.best.lashing_units} to lash · ${left.toFixed(0)} s left`);
   });
   try {
     const options = { budget_ms: search.budget * 1000, objective: objective(), keep: 3 };
@@ -889,7 +929,7 @@ async function runSearch() {
     focusKeys.clear();
     const best = r.solutions[0].score;
     setStatus(
-      `${r.cancelled ? "Stopped" : "Done"}: ${r.evaluated} plans in ${fmt(r.elapsed_ms / 1000, 1)} s · best ${fmt(best.volume_utilization * 100, 1)} % vol, ${best.lashing_units} to lash`,
+      `${r.cancelled ? "Stopped" : "Done"}: ${r.evaluated} plans in ${fmt(r.elapsed_ms / 1000, 1)} s · best ${fmt(best.volume_utilization * 100, 1)} % vol, ${best.tipping_units} may tip, ${best.lashing_units} to lash`,
       result.unpacked.length === 0 ? "ok" : "bad",
     );
     showTab("view");

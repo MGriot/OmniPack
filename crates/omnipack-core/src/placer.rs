@@ -11,6 +11,7 @@ use crate::grid::FloorGrid;
 use crate::model::{ContainerSpec, PackOptions, StopOrder, Zone};
 use crate::scene::{self, compute_supports, Roll};
 use crate::statics::{add, effective_mass, load_at, resultant, sub, Load, Support, SupportSet};
+use crate::validate::{accel, DIRS};
 use omnipack_geom::{drop_height, ray_exit_distance, tol, Body, OrientedShape, Pt2};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -85,9 +86,15 @@ pub struct PlacedBody {
     pub required_margin: f64,
     /// Load received from items above.
     pub incoming: Load,
+    /// Σ load·height of the load received from above (for the column's
+    /// centre of gravity).
+    pub incoming_y: f64,
     /// Load passed to each supporter (own weight + incoming).
     pub outgoing: Vec<(Support, Load)>,
     pub margin: f64,
+    /// Might tip in transport on a side nothing holds (placed as a fallback,
+    /// or not checked). Stacking on it then does not make things worse.
+    pub may_tip: bool,
 }
 
 pub struct ContainerState<'a> {
@@ -103,6 +110,8 @@ pub struct ContainerState<'a> {
     scratch: Vec<u32>,
     /// Smallest footprint side of any unit: narrower gaps stay empty.
     min_dim: f64,
+    /// Candidates the current pass rejected only because they would tip.
+    tip_rejects: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -162,6 +171,7 @@ impl<'a> ContainerState<'a> {
             moment_x: 0.0,
             scratch: Vec::new(),
             min_dim: if min_dim.is_finite() { min_dim } else { 0.0 },
+            tip_rejects: 0,
         };
         for p in [[0.0, 0.0], [spec.width, 0.0], [0.0, spec.depth], [spec.width, spec.depth]] {
             st.add_anchor(p);
@@ -196,15 +206,19 @@ impl<'a> ContainerState<'a> {
     /// the back wall, or the door for front-zone units and FIFO loading.
     fn depth_term(&self, inst: &Instance, z: f64, d: f64) -> f64 {
         let c = self.spec;
-        let from_door = match inst.zone {
-            Zone::Front => true,
-            Zone::Back => false,
-            Zone::Any => self.opts.stop_order == StopOrder::Fifo,
-        };
-        if from_door {
+        if Self::from_door(self.opts, inst) {
             (c.depth - (z + d)) / c.depth
         } else {
             z / c.depth
+        }
+    }
+
+    /// Whether this unit starts filling from the door rather than the back wall.
+    fn from_door(opts: &PackOptions, inst: &Instance) -> bool {
+        match inst.zone {
+            Zone::Front => true,
+            Zone::Back => false,
+            Zone::Any => opts.stop_order == StopOrder::Fifo,
         }
     }
 
@@ -316,8 +330,78 @@ impl<'a> ContainerState<'a> {
         ph.check_sliding && !ph.transport.is_empty()
     }
 
-    /// Tries to place instance `inst`. Returns `true` on success.
+    /// Tipping in transport is a placement constraint.
+    fn tip_constrained(&self) -> bool {
+        let ph = &self.opts.physics;
+        ph.avoid_tipping && ph.check_tipping && !ph.transport.is_empty()
+    }
+
+    /// Whether side `di` (of [`DIRS`]) of the box `min..max` is held against
+    /// tipping now: by a wall or an already placed neighbour that reaches above
+    /// `com_y`, within the dunnage gap (as in the validator). Units loaded
+    /// later are not counted on; the validator re-checks the finished plan.
+    fn side_held(&mut self, min: [f64; 3], max: [f64; 3], di: usize, com_y: f64) -> bool {
+        let fill = self.opts.physics.max_fill_gap.max(tol::CONTACT);
+        let size = [self.spec.width, self.spec.height, self.spec.depth];
+        let d = DIRS[di].1;
+        let k = if d[0] != 0.0 { 0 } else { 2 };
+        let positive = d[0] + d[1] > 0.0;
+        let free = if positive { size[k] - max[k] } else { min[k] };
+        if free <= fill {
+            return true;
+        }
+        for j in self.neighbours(min[0] - fill, min[2] - fill, max[0] + fill, max[2] + fill) {
+            let b = self.body(j);
+            let (omn, omx) = (b.min, b.max());
+            let over = |a: usize| omn[a] < max[a] - tol::CONTACT && min[a] < omx[a] - tol::CONTACT;
+            if !over(1) || !over(2 - k) || omx[1] < com_y {
+                continue;
+            }
+            let gap = if positive { omn[k] - max[k] } else { min[k] - omx[k] };
+            if gap >= -tol::CONTACT && gap <= fill {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a body on support `hull`, loaded at `r` with its combined
+    /// centre of gravity `lever` above its base, tips in a selected transport
+    /// case on a side nothing holds.
+    #[allow(clippy::too_many_arguments)]
+    fn tips(&mut self, min: [f64; 3], max: [f64; 3], hull: &[Pt2], r: Pt2, lever: f64, com_y: f64) -> bool {
+        if lever <= 0.0 {
+            return false;
+        }
+        let opts = self.opts;
+        for (di, (dir, d)) in DIRS.iter().enumerate() {
+            let arm = ray_exit_distance(hull, r, *d);
+            let tipping = opts.physics.transport.iter().any(|c| accel(c, *dir) * lever > c.vertical_min * arm + 1e-9);
+            if tipping && !self.side_held(min, max, di, com_y) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Tries to place instance `inst`. Returns `true` on success. With
+    /// [`crate::model::PhysicsOptions::avoid_tipping`], positions that would
+    /// tip in transport are only used when nothing else fits.
     pub fn try_place(&mut self, inst_idx: usize) -> bool {
+        if self.tip_constrained() {
+            self.tip_rejects = 0;
+            if self.place_pass(inst_idx, true) {
+                return true;
+            }
+            if self.tip_rejects == 0 {
+                return false;
+            }
+        }
+        self.place_pass(inst_idx, false)
+    }
+
+    /// One search over all candidates; `strict` rejects tipping positions.
+    fn place_pass(&mut self, inst_idx: usize, strict: bool) -> bool {
         let inst = &self.instances[inst_idx];
         if let Some(max) = self.spec.max_payload {
             if self.mass + inst.mass > max + 1e-9 {
@@ -366,7 +450,7 @@ impl<'a> ContainerState<'a> {
                     if checks > self.opts.max_stability_checks {
                         return false;
                     }
-                    if let Some(commit) = self.check(inst_idx, c.orient, [c.x, y, c.z]) {
+                    if let Some(commit) = self.check(inst_idx, c.orient, [c.x, y, c.z], strict) {
                         self.commit(commit);
                         return true;
                     }
@@ -377,8 +461,9 @@ impl<'a> ContainerState<'a> {
     }
 
     /// Full static check of a tentative placement. Returns the state changes
-    /// to apply if it is acceptable.
-    fn check(&mut self, inst_idx: usize, orient: usize, min: [f64; 3]) -> Option<Commit> {
+    /// to apply if it is acceptable. `strict` also rejects it when it, or an
+    /// item below that did not tip before, would tip in transport.
+    fn check(&mut self, inst_idx: usize, orient: usize, min: [f64; 3], strict: bool) -> Option<Commit> {
         let inst = &self.instances[inst_idx];
         let shape = &inst.shapes[orient];
         let body = Body::new(shape, min);
@@ -419,9 +504,19 @@ impl<'a> ContainerState<'a> {
             return None;
         }
         let outgoing = scene::distribute(&info.set, own, roll.is_held())?;
+        let own_y = own[0] * com[1];
+        let may_tip = !strict || roll.is_held() || {
+            if self.tips(min, mx, &info.set.hull, Pt2::new(com[0], com[2]), com[1] - min[1], com[1]) {
+                self.tip_rejects += 1;
+                return None;
+            }
+            false
+        };
 
         // Propagate the new weight downwards, top to bottom.
         let mut delta: HashMap<usize, Load> = HashMap::new();
+        // The same for Σ load·height.
+        let mut delta_y: HashMap<usize, f64> = HashMap::new();
         // Supports only point to earlier-loaded items, so processing in reverse
         // loading order visits every item after all the items resting on it.
         let mut queue: BinaryHeap<usize> = BinaryHeap::new();
@@ -429,6 +524,7 @@ impl<'a> ContainerState<'a> {
             if let Support::Item(j) = *s {
                 let e = delta.entry(j).or_insert([0.0; 3]);
                 *e = add(*e, *l);
+                *delta_y.entry(j).or_insert(0.0) += own_y * l[0] / own[0];
                 queue.push(j);
             }
         }
@@ -453,11 +549,17 @@ impl<'a> ContainerState<'a> {
                 return None;
             }
             let new_out = scene::distribute(&pj.supports, total, pj.roll.is_held())?;
+            // Σ load·height of the whole column, before and after.
+            let own_j = effective_mass(ij.mass);
+            let incoming_y = pj.incoming_y + delta_y.get(&j).copied().unwrap_or(0.0);
+            let (old_col, old_total) = (own_j * cj[1] + pj.incoming_y, own_j + pj.incoming[0]);
+            let new_col = own_j * cj[1] + incoming_y;
             for (s, l) in &new_out {
                 if let Support::Item(k) = *s {
                     let old = pj.outgoing.iter().find(|(o, _)| o == s).map(|x| x.1).unwrap_or([0.0; 3]);
                     let e = delta.entry(k).or_insert([0.0; 3]);
                     *e = add(*e, sub(*l, old));
+                    *delta_y.entry(k).or_insert(0.0) += new_col * l[0] / total[0] - old_col * old[0] / old_total;
                     queue.push(k);
                 }
             }
@@ -466,11 +568,21 @@ impl<'a> ContainerState<'a> {
                     if !new_out.iter().any(|(o, _)| o == s) {
                         let e = delta.entry(k).or_insert([0.0; 3]);
                         *e = sub(*e, *old);
+                        *delta_y.entry(k).or_insert(0.0) -= old_col * old[0] / old_total;
                         queue.push(k);
                     }
                 }
             }
-            updates.push(Update { idx: j, incoming, outgoing: new_out, margin: mj });
+            let (held, tipped, hull) = (pj.roll.is_held(), pj.may_tip, pj.supports.hull.clone());
+            let may_tip_j = !strict || held || tipped || {
+                let lever = new_col / total[0] - bj.min[1];
+                if self.tips(bj.min, bj.max(), &hull, r, lever, cj[1]) {
+                    self.tip_rejects += 1;
+                    return None;
+                }
+                false
+            };
+            updates.push(Update { idx: j, incoming, incoming_y, outgoing: new_out, margin: mj, may_tip: may_tip_j });
         }
         Some(Commit {
             body: PlacedBody {
@@ -481,8 +593,10 @@ impl<'a> ContainerState<'a> {
                 roll,
                 required_margin: required,
                 incoming: [0.0; 3],
+                incoming_y: 0.0,
                 outgoing,
                 margin,
+                may_tip,
             },
             updates,
         })
@@ -492,8 +606,10 @@ impl<'a> ContainerState<'a> {
         for u in c.updates {
             let p = &mut self.placed[u.idx];
             p.incoming = u.incoming;
+            p.incoming_y = u.incoming_y;
             p.outgoing = u.outgoing;
             p.margin = u.margin;
+            p.may_tip = u.may_tip;
         }
         let id = self.placed.len();
         let b = c.body;
@@ -537,8 +653,10 @@ impl<'a> ContainerState<'a> {
 struct Update {
     idx: usize,
     incoming: Load,
+    incoming_y: f64,
     outgoing: Vec<(Support, Load)>,
     margin: f64,
+    may_tip: bool,
 }
 
 struct Commit {

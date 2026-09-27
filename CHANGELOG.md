@@ -4,6 +4,24 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.4.0] - 2026-09-27
+
+### Fixed
+- **Units that tip in transport:** tipping was only a score penalty, so the placer
+  (and above all the ★ Best search) happily left slender or top-heavy units standing
+  where they would tip. With `physics.avoid_tipping` (on by default) a position is
+  rejected if the unit, or the column under it, would tip in a selected transport case
+  on a side no wall or neighbour holds. A unit that fits no other way is still loaded
+  and reported as needing lashing. The search ranks plans by units that may tip right
+  after the container count. Sample loads: 24 → 2 (mixed), 26 → 4 (all shapes) with the
+  plain placer, 0 after a 10 s search.
+
+### Added
+- **3D preview in every item card:** drag to rotate; shows the bounding box, the X/Y/Z
+  axes and the centre of mass.
+- **Centre of mass input:** X/Y/Z in mm from the item's base corner (stored as
+  `com_offset`). A centre of mass outside the item's bounding box is rejected.
+
 ## [0.3.0] - 2026-09-25
 
 ### Fixed

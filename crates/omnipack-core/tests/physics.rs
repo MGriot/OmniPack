@@ -444,3 +444,60 @@ fn braking_force_accumulates_towards_the_front_wall() {
     assert_eq!(front.direction, Direction::Forward);
     assert!((front.ratio - 2.0).abs() < 1e-9, "{front:?}");
 }
+
+fn slender_request(item: ItemSpec, avoid_tipping: bool) -> PackRequest {
+    PackRequest {
+        container: ContainerSpec { width: 2000.0, height: 2000.0, depth: 2000.0, ..container() },
+        items: vec![item],
+        options: PackOptions { physics: PhysicsOptions { avoid_tipping, ..Default::default() }, ..Default::default() },
+    }
+}
+
+fn tipping_count(r: &PackResult) -> usize {
+    r.containers.iter().flat_map(|c| &c.transport).flat_map(|t| &t.issues).filter(|i| i.kind == IssueKind::Tipping).count()
+}
+
+#[test]
+fn slender_item_is_laid_down_instead_of_tipping() {
+    // 300 x 1200 x 300 standing: 0.5 g sideways * 600 mm > 150 mm arm.
+    let tall = ItemSpec { quantity: 3, ..spec("tall", Shape::Box { w: 300.0, h: 1200.0, d: 300.0 }, 50.0) };
+    let r = pack(&slender_request(tall, true)).unwrap();
+    assert!(r.is_valid() && r.packed_units == 3);
+    assert_eq!(tipping_count(&r), 0, "{:?}", r.containers[0].transport);
+    assert!(r.containers[0].placements.iter().all(|p| p.size[1] < 1200.0 - 1.0), "should lie down");
+}
+
+#[test]
+fn upright_only_item_that_must_tip_is_still_loaded_and_flagged() {
+    let tall = ItemSpec { upright_only: true, ..spec("tall", Shape::Box { w: 300.0, h: 1200.0, d: 300.0 }, 50.0) };
+    let r = pack(&slender_request(tall, true)).unwrap();
+    assert!(r.is_valid() && r.packed_units == 1);
+    assert!(tipping_count(&r) > 0);
+    assert_eq!(r.containers[0].placements[0].securing, SecuringClass::Lashing);
+}
+
+#[test]
+fn centre_of_mass_outside_the_item_is_rejected() {
+    let b = ItemSpec { com_offset: [0.0, 60.0, 0.0], ..spec("b", Shape::Box { w: 100.0, h: 100.0, d: 100.0 }, 10.0) };
+    let err = pack(&slender_request(b, true)).unwrap_err();
+    assert!(matches!(err, PackError::InvalidComOffset(_)), "{err}");
+    let ok = ItemSpec { com_offset: [0.0, 50.0, 0.0], ..spec("b", Shape::Box { w: 100.0, h: 100.0, d: 100.0 }, 10.0) };
+    assert!(pack(&slender_request(ok, true)).is_ok());
+}
+
+#[test]
+fn heavy_top_does_not_make_the_stack_below_tip() {
+    // Narrow pillars and wide heavy slabs: stacking a slab on a pillar raises
+    // the column's centre of gravity; the result must not tip.
+    let pillar = ItemSpec { quantity: 4, upright_only: true, ..spec("pillar", Shape::Box { w: 400.0, h: 500.0, d: 400.0 }, 20.0) };
+    let slab = ItemSpec { quantity: 4, ..spec("slab", Shape::Box { w: 400.0, h: 700.0, d: 400.0 }, 200.0) };
+    let mut req = slender_request(pillar, false);
+    req.items.push(slab);
+    req.container.width = 800.0;
+    // Without the constraint the top pillars stand on the slabs and tip.
+    assert!(tipping_count(&pack(&req).unwrap()) > 0);
+    req.options.physics.avoid_tipping = true;
+    let r = pack(&req).unwrap();
+    assert!(r.is_valid(), "{:?}", r.containers.iter().map(|c| &c.violations).collect::<Vec<_>>());
+    assert_eq!(tipping_count(&r), 0, "{:?}", r.containers.iter().map(|c| &c.transport).collect::<Vec<_>>());
+}

@@ -79,3 +79,13 @@ proptest! {
         prop_assert!(!r.baseline.better_than(&r.solutions[0].score));
     }
 }
+
+#[test]
+fn fewer_tipping_units_beat_density() {
+    let req = generate::mixed(1);
+    let base = Score::of(&pack(&req).unwrap(), &OptimizeOptions::default().objective);
+    let dense = Score { tipping_units: 1, value: base.value + 50.0, ..base.clone() };
+    let safe = Score { tipping_units: 0, ..base };
+    assert!(safe.better_than(&dense) && !dense.better_than(&safe));
+}
+

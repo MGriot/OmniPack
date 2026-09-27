@@ -31,6 +31,8 @@ pub enum PackError {
     InvalidShape(String),
     #[error("item `{0}`: mass must be non-negative and finite")]
     InvalidMass(String),
+    #[error("item `{0}`: the centre of mass must lie inside the item's bounding box")]
+    InvalidComOffset(String),
     #[error("duplicate item id `{0}`")]
     DuplicateId(String),
 }
@@ -50,6 +52,10 @@ fn check(req: &PackRequest) -> Result<(), PackError> {
         }
         if !(it.mass.is_finite() && it.mass >= 0.0) {
             return Err(PackError::InvalidMass(it.id.clone()));
+        }
+        let (e, c) = (it.shape.local_extents(), it.shape.local_com());
+        if !(0..3).all(|k| it.com_offset[k].is_finite() && (c[k] + it.com_offset[k]).abs() <= e[k] / 2.0 + tol::BOUNDS) {
+            return Err(PackError::InvalidComOffset(it.id.clone()));
         }
     }
     Ok(())

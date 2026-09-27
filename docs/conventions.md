@@ -23,6 +23,11 @@
 Volumes, centres of mass and render meshes come from the real geometry (parry3d),
 so a cone's centre of gravity sits at a quarter of its height.
 
+`com_offset` moves the centre of mass away from that uniform-density point, in the
+item's local (unrotated) frame, mm. The app shows and edits it as coordinates from
+the bottom-left-back corner of the unrotated item (`X` along W, `Y` along H, `Z` along
+D); an empty field means the geometric centre. It must stay inside the bounding box.
+
 - An orientation says which local extent lies along world X, Y, Z,
   e.g. `WHD` = unrotated, `DHW` = 90° yaw, `HWD` = local height lying along X.
   `upright_only` keeps local Y vertical (`WHD`, `DHW`).
@@ -52,6 +57,14 @@ off the centreline. Items with `zone: front` prefer the door, `back` the far wal
 
 `accessibility` is the share of stop-tagged units not blocked (in front or on
 top) by a unit of a later stop, when unloading through the door.
+
+## Tipping in transport
+`physics.avoid_tipping` (default on, needs `check_tipping` and a transport case) makes
+tipping a placement rule: a position is rejected if the unit, or anything below it,
+would tip on a side that no wall or already loaded neighbour (reaching above its centre
+of gravity, within `max_fill_gap`) holds. Units loaded later are not counted on. When
+no position passes, the unit is placed anyway and flagged for lashing. The ★ Best search
+prefers plans with fewer such units over denser ones.
 
 ## JSON
 Request: `PackRequest { container, items, options }` (see

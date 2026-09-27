@@ -76,6 +76,28 @@ fn shape_mesh(shape: Shape, orientation: Orientation) -> CmdResult<RenderMesh> {
     Ok(OrientedShape::new(&shape, orientation, [0.0; 3]).render_mesh())
 }
 
+/// One item on its own, unrotated, for the preview in its editor card.
+#[derive(Serialize)]
+struct ItemPreview {
+    mesh: RenderMesh,
+    /// Bounding box W, H, D, mm.
+    extents: [f64; 3],
+    /// Uniform-density centre of mass, from the bounding box's min corner.
+    centroid: [f64; 3],
+    /// Centre of mass including `com_offset`, from the min corner.
+    com: [f64; 3],
+}
+
+#[tauri::command]
+fn item_preview(shape: Shape, com_offset: [f64; 3]) -> CmdResult<ItemPreview> {
+    if !shape.is_valid() {
+        return Err(format!("invalid shape {shape:?}"));
+    }
+    let plain = OrientedShape::new(&shape, Orientation::Whd, [0.0; 3]);
+    let com = OrientedShape::new(&shape, Orientation::Whd, com_offset).com_from_min;
+    Ok(ItemPreview { mesh: plain.render_mesh(), extents: plain.extents, centroid: plain.com_from_min, com })
+}
+
 /// Saved setups, keyed by name. Stored as one JSON file in the app data dir.
 #[derive(Default, Serialize, Deserialize)]
 struct Catalog {
@@ -142,6 +164,7 @@ pub fn run() {
             sample_request,
             transport_presets,
             shape_mesh,
+            item_preview,
             catalog_list,
             catalog_load,
             catalog_save,
