@@ -60,10 +60,82 @@ Quick Lashing Guide.**
   chain. The units at the end of a chain (the front wall under braking) carry
   the sum. This is the quasi-static EN 12195-1 force, not a crash simulation.
 
+- **Direct lashing count** (since 0.5). Each sliding or tipping force is also
+  turned into a number of direct lashings with the EN 12195-1 formula: the
+  friction factor f_μ = 0.75, the angles α and β, and the weaker of strap and
+  lashing point. ISO 1496-1 requires at least 1000 daN for floor lashing points
+  and 500 daN for those on the posts. A 2000 daN strap on a floor ring therefore
+  counts as 1000 daN.
+
 Not modelled yet:
-- Lashing geometry (top-over, loop, direct lashing).
+- Top-over and loop lashing.
 - Blocking through the layer below (friction plus lip).
 - Dynamic effects. Rapier3D is planned for M3.
+
+## Load distribution and vehicle (since 0.5)
+
+**IMO/ILO/UNECE CTU Code (2014), annex 7 ("Packing and securing of cargo into
+CTUs").**
+- The cargo's centre of gravity should stay close to the middle of the CTU.
+  OmniPack's defaults are 5% of the length and of the width: a container lifted by
+  a spreader then hangs level, and the load splits evenly over the axles.
+- The centre of gravity should be in the lower half of the height.
+- The 60/50 rule is quoted in two ways. "No more than 60% of the mass in one half
+  of the length" is one. "At least 60% of the mass in the middle half (25–75% of
+  the length)" is the other.
+  - OmniPack checks the second, by the project owner's choice; the threshold is
+    configurable.
+  - Note that an evenly filled container has 50% in the middle half, so the rule
+    flags uniform loads and favours heavy units in the middle.
+  - The share in each half is reported too.
+- **What OmniPack takes (`balance.rs`):**
+  - The checks are warnings in `ContainerPlan.balance`, not violations. A
+    partial load often cannot meet them, and the property tests require every
+    plan and loading step to stay valid.
+  - The ★ Best search subtracts `Objective::balance × excess` from its value.
+  - The optional lengthwise centring slides a partial load by the shortest
+    distance that best meets the window, the middle share and the axle limits.
+    The moved plan is rebuilt through the placer's checks.
+
+**SOLAS chapter VI, regulation 2 (verified gross mass, in force since 2016).**
+Method 2 adds up the packed cargo, the packing and securing material, and the
+container tare from the CSC plate. OmniPack reports tare + cargo; the dunnage and
+lashings come on top.
+
+**ISO 1496-1 / ISO 668 (series 1 freight containers).**
+- They give the inside sizes, the door openings (2340 × 2280 mm; 2340 × 2585 mm
+  for high cubes) and the floor test: a forklift axle of 5460 kg on wheels of
+  142 cm² each.
+- OmniPack's presets use typical inside sizes and tares for a 30 480 kg maximum
+  gross mass.
+- The door opening is a hard placement rule.
+- The floor check compares each unit's contact pressure, including everything it
+  carries, with a floor rating. The default 2500 kg/m² is the upper end of the
+  2.0–2.5 t/m² usually quoted. Above it the unit is reported with the area its
+  load must be spread over, with timber or steel beams across the floor
+  cross-members.
+
+**Directive 96/53/EC as amended by (EU) 2015/719 (weights and dimensions).**
+- The limits are 10 t for a non-driven axle, 11.5 t for a drive axle and 24 t for
+  a tri-axle group (spacing over 1.3 m). A 5-axle combination may weigh 40 t, or
+  44 t carrying a 40 ft ISO container in combined transport.
+- OmniPack splits the container (cargo + tare) and the trailer tare between the
+  kingpin and the trailer axles by moments, and then the kingpin load and the
+  tractor tare between the steer and drive axles.
+- With a 40 ft chassis the drive axle is usually the first to overload, because
+  the kingpin sits just ahead of it.
+
+**Ship motion (roll and pitch).**
+- The natural roll period is `T = 2·c·B/√GM` (c ≈ 0.4).
+- The transverse acceleration at height z above the roll axis is
+  `g·sin θ + (2π/T)²·z·sin θ`.
+- Pitch adds `(2π/T_p)²·θ_p` times the distance from the pitch axis: fore and aft
+  at height, vertically towards bow and stern.
+- These are the textbook rigid-body terms behind the CTU Code tables for sea
+  areas A/B/C. `TransportCase::from_ship` uses them to make a case for a specific
+  ship and stowage place.
+- A GM below the 0.15 m IS Code minimum means a tender ship. A short roll period
+  means a stiff one, and violent accelerations high up on deck.
 
 ## Candidate positions
 
@@ -166,5 +238,9 @@ parallel multi-population BRKGA for container loading.
 - Gonçalves, J. F., Resende, M. G. C. (2013). A biased random key genetic algorithm for 2D and 3D bin packing problems. *IJPE* 145(2), 500–510.
 - Ramos, A. G., Oliveira, J. F., Gonçalves, J. F., Lopes, M. P. (2016). A container loading algorithm with static mechanical equilibrium stability constraints. *Transportation Research Part B* 91, 565–581.
 - EN 12195-1:2010 Load restraining on road vehicles – Safety – Part 1: Calculation of securing forces.
+- ISO 1496-1:2013 Series 1 freight containers – Specification and testing – Part 1: General cargo containers; ISO 668:2020 Classification, dimensions and ratings.
+- SOLAS chapter VI, regulation 2, as amended by resolution MSC.380(94): verified gross mass of containers (MSC.1/Circ.1475 guidelines).
+- Council Directive 96/53/EC, as amended by Directive (EU) 2015/719: maximum weights and dimensions of road vehicles in the EU.
+- IMO 2008 Intact Stability Code (resolution MSC.267(85)).
 - IMO/ILO/UNECE Code of Practice for Packing of Cargo Transport Units (CTU Code), 2014.
 - Online 3D Bin Packing with Fast Stability Validation and Stable Rearrangement Planning, arXiv:2507.09123 (2025).

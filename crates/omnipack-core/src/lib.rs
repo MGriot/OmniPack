@@ -7,6 +7,7 @@
 //! assert!(plan.is_valid());
 //! ```
 
+pub mod balance;
 pub mod generate;
 pub mod grid;
 pub mod model;
@@ -126,9 +127,11 @@ pub fn default_sequence(req: &PackRequest) -> Vec<Instance> {
 }
 
 fn fits_empty(inst: &Instance, c: &ContainerSpec) -> bool {
-    inst.shapes.iter().any(|s| {
-        s.extents[0] <= c.width + tol::BOUNDS && s.extents[1] <= c.height + tol::BOUNDS && s.extents[2] <= c.depth + tol::BOUNDS
-    })
+    inst.shapes.iter().any(|s| fits_inside(s, c))
+}
+
+fn fits_inside(s: &OrientedShape, c: &ContainerSpec) -> bool {
+    s.extents[0] <= c.width + tol::BOUNDS && s.extents[1] <= c.height + tol::BOUNDS && s.extents[2] <= c.depth + tol::BOUNDS
 }
 
 /// Packs the request with the default loading sequence.
@@ -149,6 +152,8 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
             Some(UnpackReason::NoOrientation)
         } else if !fits_empty(inst, c) {
             Some(UnpackReason::TooLarge)
+        } else if !inst.shapes.iter().any(|s| fits_inside(s, c) && validate::passes_door(c, s)) {
+            Some(UnpackReason::DoorTooSmall)
         } else if c.max_payload.is_some_and(|m| inst.mass > m) {
             Some(UnpackReason::TooHeavy)
         } else {
@@ -215,9 +220,8 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
     }
 }
 
-fn finish_container(req: &PackRequest, instances: &[Instance], state: &ContainerState, index: usize) -> ContainerPlan {
-    let c = &req.container;
-    let placements: Vec<Placement> = state
+fn placements_of(req: &PackRequest, instances: &[Instance], state: &ContainerState) -> Vec<Placement> {
+    state
         .placed
         .iter()
         .enumerate()
@@ -242,24 +246,57 @@ fn finish_container(req: &PackRequest, instances: &[Instance], state: &Container
                 securing: SecuringClass::Secured,
                 impact: None,
                 color: spec.color.clone(),
+                floor_pressure: 0.0,
             }
         })
-        .collect();
-    let mut placements = placements;
+        .collect()
+}
+
+/// Lengthwise centring (if enabled) plus the full check of the result. Exact
+/// contact queries are only translation-invariant up to rounding, so the
+/// moved load is rebuilt unit by unit through the placer's own checks (every
+/// loading step stays verified) and kept only if it then validates cleanly.
+fn centre(req: &PackRequest, instances: &[Instance], state: &ContainerState) -> (f64, Vec<Placement>, validate::PlanCheck) {
+    let (c, opts) = (&req.container, &req.options);
+    let placements = placements_of(req, instances, state);
+    if opts.balance.centre_lengthwise {
+        let mut moved = placements.clone();
+        let shift = balance::centre_lengthwise(c, opts, &mut moved);
+        if shift != 0.0 {
+            let mut again = ContainerState::new(c, opts, instances);
+            if state.placed.iter().all(|p| again.place_at(p.inst, p.orient, [p.min[0], p.min[1], p.min[2] + shift])) {
+                let moved = placements_of(req, instances, &again);
+                let check = validate::check_plan(c, &req.items, opts, &moved);
+                if check.violations.is_empty() {
+                    return (shift, moved, check);
+                }
+            }
+        }
+    }
+    let check = validate::check_plan(c, &req.items, opts, &placements);
+    (0.0, placements, check)
+}
+
+fn finish_container(req: &PackRequest, instances: &[Instance], state: &ContainerState, index: usize) -> ContainerPlan {
+    let c = &req.container;
+    let (shift, mut placements, check) = centre(req, instances, state);
     let metrics = validate::compute_metrics(c, &placements);
-    let violations = validate::validate(c, &req.items, &req.options, &placements);
-    let report = validate::transport_report(c, &req.items, &req.options, &placements);
-    for ((p, s), im) in placements.iter_mut().zip(report.securing).zip(report.impact) {
+    let report = check.transport;
+    let mut floor_load = Vec::with_capacity(placements.len());
+    for (((p, s), im), fp) in placements.iter_mut().zip(report.securing).zip(report.impact).zip(check.floor_pressure) {
         p.securing = s;
         p.impact = im;
+        p.floor_pressure = fp.pressure;
+        floor_load.push(fp.load);
     }
-    let transport = report.results;
+    let balance = balance::report(c, &req.options, &placements, &metrics, &floor_load, shift);
     ContainerPlan {
         id: format!("{}-{}", c.id, index + 1),
         size: [c.width, c.height, c.depth],
         placements,
         metrics,
-        violations,
-        transport,
+        violations: check.violations,
+        transport: report.results,
+        balance,
     }
 }

@@ -49,6 +49,22 @@ export interface TransportCase {
   vertical_max: number;
 }
 
+/** Direct lashing (EN 12195-1) used to count lashings. */
+export interface LashingOptions {
+  /** Lashing capacity LC of one lashing, daN. */
+  capacity_dan: number;
+  /** Strength of the lashing points, daN (ISO floor points: 1000). */
+  anchor_dan: number;
+  /** Angle α to the floor, degrees. */
+  vertical_angle: number;
+  /** Angle β to the direction held, degrees. */
+  horizontal_angle: number;
+}
+
+export function defaultLashing(): LashingOptions {
+  return { capacity_dan: 2000, anchor_dan: 1000, vertical_angle: 45, horizontal_angle: 30 };
+}
+
 export interface PhysicsOptions {
   transport: TransportCase[];
   check_sliding: boolean;
@@ -64,13 +80,14 @@ export interface PhysicsOptions {
   /** Cargo-to-floor friction; null = the item's own value. */
   floor_friction: number | null;
   anti_slip_mats: boolean;
+  lashing: LashingOptions;
 }
 
 /** Same as the first Rust preset; used until the presets are loaded. */
-export const ROAD: TransportCase = { name: "Road (EN 12195-1)", forward: 0.8, backward: 0.5, sideways: 0.5, vertical_min: 1.0, vertical_max: 1.0 };
+export const ROAD: TransportCase = { name: "Road (EN 12195-1)", forward: 0.8, backward: 0.5, sideways: 0.5, vertical_min: 1.0, vertical_max: 1.3 };
 
 export function defaultPhysics(): PhysicsOptions {
-  return { transport: [ROAD], check_sliding: true, check_tipping: true, avoid_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true, max_fill_gap: 50, floor_friction: null, anti_slip_mats: false };
+  return { transport: [ROAD], check_sliding: true, check_tipping: true, avoid_tipping: true, dynamic_stacking: false, default_friction: 0.4, use_chocks: true, secure_load_end: true, max_fill_gap: 50, floor_friction: null, anti_slip_mats: false, lashing: defaultLashing() };
 }
 
 export interface ItemSpec {
@@ -102,6 +119,29 @@ export interface CogLimits {
   max_height: number | null;
 }
 
+/** Tractor + semi-trailer (mm along the vehicle, rearwards positive; kg). */
+export interface RoadVehicle {
+  name: string;
+  /** Kingpin → container front wall; positive = behind the kingpin. */
+  container_front: number;
+  /** Kingpin → centre of the trailer axle group. */
+  trailer_wheelbase: number;
+  trailer_tare: number;
+  /** Kingpin → centre of gravity of the empty trailer. */
+  trailer_cog: number;
+  tractor_tare: number;
+  /** Steer axle → drive axle. */
+  tractor_wheelbase: number;
+  /** Steer axle → centre of gravity of the tractor. */
+  tractor_cog: number;
+  /** Steer axle → kingpin (fifth wheel). */
+  fifth_wheel: number;
+  max_steer: number;
+  max_drive: number;
+  max_trailer: number;
+  max_gross: number;
+}
+
 export interface ContainerSpec {
   id: string;
   width: number;
@@ -110,6 +150,30 @@ export interface ContainerSpec {
   max_payload: number | null;
   axles: [Axle, Axle] | null;
   cog_limits: CogLimits;
+  /** Clear door opening [width, height], mm; null = no door limit. */
+  door: [number, number] | null;
+  /** Empty container mass (CSC plate), kg. */
+  tare_mass: number | null;
+  /** Floor rating, kg/m². */
+  floor_rating: number | null;
+  vehicle: RoadVehicle | null;
+}
+
+/** Load distribution checks (CTU Code); warnings, not violations. */
+export interface BalanceOptions {
+  ctu_checks: boolean;
+  /** Largest CoG offset from the middle, share of length / width. */
+  max_eccentricity: number;
+  /** Smallest share of the mass between 25% and 75% of the length. */
+  min_central_share: number;
+  /** Highest CoG, share of the inside height. */
+  max_cog_height: number;
+  /** Slide a partial load lengthwise to meet the window and axle limits. */
+  centre_lengthwise: boolean;
+}
+
+export function defaultBalance(): BalanceOptions {
+  return { ctu_checks: true, max_eccentricity: 0.05, min_central_share: 0.6, max_cog_height: 0.5, centre_lengthwise: false };
 }
 
 export interface PackOptions {
@@ -124,6 +188,7 @@ export interface PackOptions {
   max_containers: number;
   max_stability_checks: number;
   seed: number;
+  balance: BalanceOptions;
 }
 
 export interface PackRequest {
@@ -149,6 +214,8 @@ export interface Placement {
   securing: SecuringClass;
   impact?: Impact;
   color?: string;
+  /** Pressure on the container floor, kg/m² (0 = not on the floor). */
+  floor_pressure: number;
 }
 
 export type SecuringClass = "secured" | "dunnage" | "chocks" | "lashing" | "overloaded";
@@ -186,6 +253,8 @@ export interface TransportIssue {
   acceleration: number;
   /** kN of securing force; kg of excess load for stack overloads. */
   required: number;
+  /** Direct lashings of the configured capacity that provide it. */
+  lashings: number;
 }
 
 export interface TransportResult {
@@ -202,6 +271,39 @@ export interface GapFill {
   gap_mm: number;
 }
 
+export interface VehicleLoads {
+  steer: number;
+  drive: number;
+  trailer: number;
+  gross: number;
+  /** steer, drive, trailer, gross */
+  limits: [number, number, number, number];
+}
+
+export type BalanceIssue =
+  | { kind: "cog_lengthwise"; offset: number; limit: number }
+  | { kind: "cog_lateral"; offset: number; limit: number }
+  | { kind: "central_share"; share: number; min: number }
+  | { kind: "cog_height"; height: number; limit: number }
+  | { kind: "axle_overload"; axle: string; load: number; max: number }
+  | { kind: "floor_pressure"; item: string; pressure: number; limit: number; spread_area: number };
+
+export interface BalanceReport {
+  /** mm the load was moved towards the door (+). */
+  shift: number;
+  lengthwise_offset: number;
+  lateral_offset: number;
+  central_share: number;
+  half_shares: [number, number];
+  cog_height_ratio: number;
+  /** Free length to the front wall and to the door, mm. */
+  end_gaps: [number, number];
+  vgm?: number;
+  vehicle?: VehicleLoads;
+  issues: BalanceIssue[];
+  excess: number;
+}
+
 export interface ContainerPlan {
   id: string;
   size: [number, number, number];
@@ -209,6 +311,31 @@ export interface ContainerPlan {
   metrics: Metrics;
   violations: Violation[];
   transport: TransportResult[];
+  balance: BalanceReport;
+}
+
+/** Ship and stowage position for a sea case from ship motion (m, s, degrees, g). */
+export interface ShipMotion {
+  beam: number;
+  gm: number;
+  roll_coeff: number;
+  roll_deg: number;
+  pitch_deg: number;
+  pitch_period: number;
+  height: number;
+  from_midship: number;
+  surge_g: number;
+  heave_g: number;
+}
+
+export function defaultShipMotion(): ShipMotion {
+  return { beam: 32.2, gm: 1.5, roll_coeff: 0.4, roll_deg: 22, pitch_deg: 5, pitch_period: 8, height: 15, from_midship: 60, surge_g: 0.1, heave_g: 0.3 };
+}
+
+export interface ShipCase {
+  case: TransportCase;
+  roll_period: number;
+  notes: string[];
 }
 
 export interface RenderMesh {
@@ -255,6 +382,7 @@ export function defaultOptions(): PackOptions {
     max_containers: 50,
     max_stability_checks: 5000,
     seed: 0,
+    balance: defaultBalance(),
   };
 }
 
@@ -284,6 +412,7 @@ export interface Objective {
   securing: number;
   dunnage: number;
   stability: number;
+  balance: number;
 }
 
 export interface OptimizeOptions {
@@ -311,6 +440,11 @@ export interface Score {
   lashing_kn: number;
   dunnage_mm: number;
   min_margin: number | null;
+  /** CTU window / central share / axle warnings over all containers. */
+  balance_issues: number;
+  balance_excess: number;
+  /** Units over the floor rating. */
+  floor_overloads: number;
 }
 
 /** An item on its own (unrotated), for the preview in its card. */

@@ -6,16 +6,40 @@ a **Pack** button at the bottom.
 
 ## 1. Describe the container
 
-In **Container**, enter the inside width (X), height (Y) and depth (Z) in millimetres.
-The **door is at the far end of the depth axis** and is drawn in orange. Depth 0 is the
-front wall, where braking pushes the cargo.
+In **Container**, pick a **Type** or enter the inside width (X), height (Y) and depth (Z)
+in millimetres yourself. The **door is at the far end of the depth axis** and is drawn
+in orange. Depth 0 is the front wall, where braking pushes the cargo.
+
+| Type | Inside W × H × D (mm) | Door (mm) | Tare (kg) | Payload (kg) |
+|---|---|---|---|---|
+| 20 ft standard (20' DV) | 2352 × 2393 × 5898 | 2340 × 2280 | 2230 | 28 250 |
+| 40 ft standard (40' DV) | 2352 × 2393 × 12 032 | 2340 × 2280 | 3750 | 26 730 |
+| 40 ft high cube (40' HC) | 2352 × 2698 × 12 032 | 2340 × 2585 | 3900 | 26 580 |
+| Semi-trailer 13.6 m | 2480 × 2700 × 13 600 | side loading | — | 24 000 |
+
+These are typical values for a 30 480 kg maximum gross mass; check the CSC plate of the
+actual container. The ISO containers also get a floor rating of 2500 kg/m².
 
 Optional limits:
 - **Max payload** (kg).
 - **Max CoG offset**: how far the cargo's centre of gravity may move off the
-  centreline, in mm.
+  centreline, in mm. This is a hard limit; the CTU Code balance checks below are
+  warnings.
+- **Door width / height**: every unit must pass the door opening as it is loaded.
+  A unit that is too tall standing up is laid down if it may be rotated; otherwise
+  it is left out as "door too small".
+- **Tare** (kg): gives the **VGM** (verified gross mass = tare + cargo, SOLAS) and is
+  part of the vehicle axle loads.
+- **Floor rating** (kg/m²): units pressing harder on the floor are flagged to have
+  their load spread with beams.
 
 Leave a field empty for "no limit".
+
+**Road vehicle:** pick a tractor + 3-axle container chassis to see the steer axle,
+drive axle, trailer axles and gross mass against the EU limits (10 t, 11.5 t, 24 t,
+44 t). **Vehicle geometry and limits** lets you enter your own vehicle: distances
+along the vehicle in mm, rearwards positive, measured from the kingpin or the steer
+axle.
 
 ## 2. Add the cargo
 
@@ -31,6 +55,16 @@ Use **+ Add…** to add an item type, choosing its shape:
 | Prism | sides (3 = triangle, 6 = hexagon…), radius, length | beams, bars, extrusions |
 | L-profile | leg A, leg B, thickness, length | steel angles |
 
+**+ Add…** also offers loaded pallets: **Euro pallet EPAL 1** (1200 × 800) and
+**Industrial pallet EPAL 2** (1200 × 1000). Both start 1 m high, 500 kg, this side up,
+with friction 0.45 (wood on plywood); set their real height and mass. In a container
+2352 mm wide, two EPAL 1 do not fit side by side on their long sides (2400 mm).
+Rotation lets OmniPack mix the orientations across the width (1200 + 800, the
+pinwheel pattern). EPAL 2 fit two across on their 1000 mm sides.
+
+Each item card shows a **3D preview**: drag to rotate it. It shows the bounding box,
+the X/Y/Z axes and the centre of mass.
+
 For each item type you can set:
 - **Mass** (kg per unit) and **Quantity**.
 - **Max load on top** (kg): everything stacked above counts, not just the item directly
@@ -42,6 +76,9 @@ For each item type you can set:
   the default.
 - **This side up / Upright only:** keeps the item's height axis vertical.
 - **Floor only:** the item must stand on the container floor.
+- **Centre of mass:** X / Y / Z in mm from the bottom-left-back corner of the
+  unrotated item. Leave the fields empty for the geometric centre, or use ↺ to go back
+  to it.
 
 Samples (the **Sample…** menu) show complete setups: a mixed truck load, all shapes in
 a 20 ft container, and benchmark sets.
@@ -72,6 +109,15 @@ a 20 ft container, and benchmark sets.
 - **Minimum support area:** the share of a flat bottom that must rest on something.
 - **Balance:** how strongly to keep the load centred left and right.
 - **Allow rotation:** lets items turn into any of their resting orientations.
+- **CTU Code balance checks:** warns when the load is badly distributed (see
+  [Load balance](#load-balance) below). **Balance limits** sets the thresholds:
+  - the centre-of-gravity offset (±5% of the length and width);
+  - the minimum mass in the middle half of the length (60%);
+  - the maximum centre-of-gravity height (50%).
+- **Centre load lengthwise:** after packing, slides a partial load along the length,
+  by the least amount that meets the centre-of-gravity window and the axle limits.
+  The gaps left at the front wall and the door must then be braced with timber or
+  airbags. Off by default.
 
 ## 4. Choose the physics
 
@@ -99,6 +145,16 @@ Under **Physics & transport**:
   0 means only touching faces block. With the common μ 0.4, friction alone never holds
   cargo on the road, so blocking decides almost everything. If this is too small for your
   practice, nearly every unit will show as needing lashing.
+- **Direct lashing (EN 12195-1):** the strap's lashing capacity LC (default 2000 daN),
+  the strength of the lashing points (container floor points: 1000 daN), and the
+  lashing angles. Each securing force is then also given as a number of lashings. The
+  weaker of strap and lashing point counts.
+- **Sea case from ship motion:** enter the ship's beam and GM, the roll and pitch
+  amplitudes, the pitch period, and where the container stands. That is its height
+  above the roll axis and its distance from midship. OmniPack computes the roll period
+  and the accelerations there. **Add this case** puts the case in the list of
+  transport legs (✕ removes it). The result warns about a **stiff** ship (short roll
+  period, violent accelerations on deck) or a **tender** one (GM below 0.15 m).
 
 ## 5. Pack and read the results
 
@@ -110,23 +166,56 @@ Press **Pack** (or Ctrl+Enter). The badges at the top of **Results** summarise t
   force (kN) the lashing or blocking must provide. The largest forces are listed first.
   **Fill N gaps with dunnage** lists the gaps the blocking relies on, with their width.
 - **Chocks:** how many round items need wedges.
+- **Balanced** or **N balance warnings**, and **N over floor rating** when units press
+  too hard on the floor.
+
+Each securing line gives the blocking force and the number of direct lashings, for
+example "block with ≥ 1.32 kN or 1 direct lashing (1,000 daN)". Gaps of 150 mm or more
+in the dunnage list are marked "airbag".
 
 Below the badges you'll find fill %, cargo mass, centre of gravity, axle loads,
 unloading accessibility (the share of items reachable at their stop without moving
 another stop's cargo), and any units that could not be packed, with the reason.
+
+### Load balance
+
+The **Load balance** section checks the load against the CTU Code (✓ / ⚠):
+
+- **CoG lengthwise / sideways:** how far the cargo's centre of gravity is from the
+  middle, in mm and as a share of the length or width (limit ±5%).
+- **Middle half:** the share of the mass between 25% and 75% of the length (at least
+  60%). An evenly filled container has 50% there, so put heavy units towards the
+  middle.
+- **CoG height:** below half the inside height.
+- **Front half / door half:** where the mass sits.
+- **Moved lengthwise:** how far "Centre load lengthwise" slid the load.
+- **Free length front / door:** "brace" marks a gap larger than the dunnage limit.
+- **VGM:** tare + cargo, to which the dunnage and lashing material must be added.
+- **Steer axle, drive axle, trailer axles, gross mass** against their limits, when a
+  road vehicle is set.
+- Units **over the floor rating**, each with the area its load must be spread over.
+
+These are warnings: the plan stays valid. **★ Best** prefers plans with fewer and
+smaller balance warnings; the **Prefer** slider gives them more weight towards
+*least securing*.
 
 ## 6. Explore the 3D view
 
 - **Rotate** with a left drag or one finger, **zoom** with the wheel or a pinch, **pan**
   with a right drag. ⟲ resets the camera.
 - **Colour by** item, delivery stop, load against limit, stability margin, securing
-  needed, or the impact heatmap.
+  needed, the impact heatmap, or floor pressure.
   - *Securing needed:* red = needs lashing, purple = stack overloaded, orange = chocks,
     blue = held once the listed gaps are filled, green = secured.
   - *Impact heatmap:* the transport force each unit must pass on to whatever blocks it,
     in the worst transport leg and direction. This is its own push plus everything
     behind it in the blocking chain. Green is low, red is the highest in this container.
     The four bands can be isolated like any legend entry.
+  - *Floor pressure:* the pressure on the floor against the floor rating. Purple means
+    over the rating; grey units do not stand on the floor.
+- With the CTU Code checks on, the floor shows the allowed window for the cargo's
+  centre of gravity (green when the pink CoG marker is inside it, red when not). Dashed
+  lines mark 25% and 75% of the length.
 - **Legend:** click entries to show only those groups (the others fade out); click again
   to remove one; **Show all** resets.
 - **Timeline:** use ⏮ ◀ ▶ ▶| ⏭ or the keys ← → Home End Space to go through the load
@@ -141,4 +230,4 @@ another stop's cargo), and any units that could not be packed, with the reason.
 - **Catalog:** named setups kept inside the app.
 - **Export plan (JSON):** every placement with its coordinates, for other software.
 - **Export load list (CSV):** a loading list for the warehouse, with position, size,
-  orientation, mass, stop, chocks and securing notes.
+  orientation, mass, floor pressure, stop, chocks, lashings and securing notes.

@@ -34,6 +34,10 @@ pub struct Placement {
     /// Worst transport load on this unit (none without transport cases).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub impact: Option<Impact>,
+    /// Pressure on the container floor under this unit (own weight plus
+    /// everything it carries), kg/m². 0 = not on the floor.
+    #[serde(default)]
+    pub floor_pressure: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
 }
@@ -73,6 +77,8 @@ pub struct Impact {
 pub enum UnpackReason {
     /// No allowed orientation fits inside an empty container.
     TooLarge,
+    /// Fits inside, but no allowed orientation passes the door opening.
+    DoorTooSmall,
     /// Heavier than the container's max payload.
     TooHeavy,
     /// No allowed orientation exists (constraints exclude all).
@@ -123,6 +129,8 @@ pub enum Violation {
     AxleOverloaded { axle: usize, load: f64, max: f64 },
     CogOutOfLimits { detail: String },
     OrientationNotAllowed { item: String },
+    /// Too wide or too tall, in its orientation, for the door opening.
+    DoorTooSmall { item: String },
 }
 
 /// Direction of an acceleration acting on the cargo. Forward = towards the
@@ -158,6 +166,10 @@ pub struct TransportIssue {
     /// Securing force still needed (lashing, blocking), kN. For stack
     /// overloads: the excess load, kg.
     pub required: f64,
+    /// Direct lashings of the configured capacity that would provide it
+    /// (EN 12195-1). 0 for stack overloads.
+    #[serde(default)]
+    pub lashings: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +204,68 @@ pub struct ContainerPlan {
     /// Quasi-static transport checks, one entry per selected case.
     #[serde(default)]
     pub transport: Vec<TransportResult>,
+    /// Load distribution: CTU Code checks, VGM, vehicle axle loads, floor.
+    #[serde(default)]
+    pub balance: BalanceReport,
+}
+
+/// Where the cargo's weight sits in the container and on the vehicle. The
+/// issues are warnings; they do not make the plan invalid.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BalanceReport {
+    /// The load was moved this far along Z to balance it (+ = towards the door), mm.
+    pub shift: f64,
+    /// Cargo centre of gravity minus the middle of the length (+ = towards the door), mm.
+    pub lengthwise_offset: f64,
+    /// Cargo centre of gravity minus the middle of the width (+ = right), mm.
+    pub lateral_offset: f64,
+    /// Share of the cargo mass between 25% and 75% of the length, 0..1.
+    pub central_share: f64,
+    /// Share of the cargo mass in the front half and in the door half, 0..1.
+    pub half_shares: [f64; 2],
+    /// Height of the cargo's centre of gravity over the inside height, 0..1.
+    pub cog_height_ratio: f64,
+    /// Free length between the load and the front wall, and the door, mm.
+    pub end_gaps: [f64; 2],
+    /// Verified gross mass (SOLAS VI/2, method 2): tare plus cargo, kg.
+    /// Dunnage and lashing material come on top.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vgm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vehicle: Option<VehicleLoads>,
+    pub issues: Vec<BalanceIssue>,
+    /// Sum of the exceedances, in percentage points (0 = every check met).
+    pub excess: f64,
+}
+
+/// Ground loads of the road vehicle with the container and its cargo, kg.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VehicleLoads {
+    pub steer: f64,
+    pub drive: f64,
+    /// Trailer axle group.
+    pub trailer: f64,
+    pub gross: f64,
+    /// Limits in the same order: steer, drive, trailer, gross.
+    pub limits: [f64; 4],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BalanceIssue {
+    /// The centre of gravity is too far towards one end (CTU Code: 5% of the length).
+    CogLengthwise { offset: f64, limit: f64 },
+    /// The centre of gravity is too far to one side (CTU Code: 5% of the width).
+    CogLateral { offset: f64, limit: f64 },
+    /// Too little of the mass in the middle half of the length.
+    CentralShare { share: f64, min: f64 },
+    /// The centre of gravity is too high (CTU Code: below half the height).
+    CogHeight { height: f64, limit: f64 },
+    /// A vehicle axle (steer, drive, trailer) or the gross mass is over its limit.
+    AxleOverload { axle: String, load: f64, max: f64 },
+    /// The contact pressure under a unit exceeds the floor rating: spread it
+    /// over at least `spread_area` m² with beams.
+    FloorPressure { item: String, pressure: f64, limit: f64, spread_area: f64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

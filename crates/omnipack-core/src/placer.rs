@@ -11,7 +11,7 @@ use crate::grid::FloorGrid;
 use crate::model::{ContainerSpec, PackOptions, StopOrder, Zone};
 use crate::scene::{self, compute_supports, Roll};
 use crate::statics::{add, effective_mass, load_at, resultant, sub, Load, Support, SupportSet};
-use crate::validate::{accel, DIRS};
+use crate::validate::{accel, passes_door, DIRS};
 use omnipack_geom::{drop_height, ray_exit_distance, tol, Body, OrientedShape, Pt2};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -400,6 +400,18 @@ impl<'a> ContainerState<'a> {
         self.place_pass(inst_idx, false)
     }
 
+    /// Places a unit at a given pose if it passes the same static checks as a
+    /// searched position (tipping in transport is not judged again).
+    pub fn place_at(&mut self, inst_idx: usize, orient: usize, min: [f64; 3]) -> bool {
+        match self.check(inst_idx, orient, min, false) {
+            Some(c) => {
+                self.commit(c);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// One search over all candidates; `strict` rejects tipping positions.
     fn place_pass(&mut self, inst_idx: usize, strict: bool) -> bool {
         let inst = &self.instances[inst_idx];
@@ -413,7 +425,7 @@ impl<'a> ContainerState<'a> {
         let mut seen = HashSet::new();
         for (oi, shape) in inst.shapes.iter().enumerate() {
             let [w, h, d] = shape.extents;
-            if w > cw + tol::BOUNDS || h > ch + tol::BOUNDS || d > cd + tol::BOUNDS {
+            if w > cw + tol::BOUNDS || h > ch + tol::BOUNDS || d > cd + tol::BOUNDS || !passes_door(self.spec, shape) {
                 continue;
             }
             for &[px, pz] in &self.anchors {

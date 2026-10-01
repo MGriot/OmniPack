@@ -14,12 +14,14 @@
 //!
 //! Every plan is built by the same placer and re-checked by the independent
 //! validator; plans with violations are discarded, and plans where fewer
-//! units would tip in transport beat denser ones. Loading constraints
+//! units would tip in transport beat denser ones. Load-balance warnings (CTU
+//! Code window, vehicle axles) and floor overloads cost value. Loading constraints
 //! (stops, zones, floor-only units) are kept by only reordering units within
 //! the same [`load_group`].
 
 use omnipack_core::placer::Instance;
-use omnipack_core::{default_sequence, load_group, pack, pack_sequence, FillBias, IssueKind, LoadPriority, PackError, PackRequest, PackResult, SecuringClass};
+use omnipack_core::balance::container_issues;
+use omnipack_core::{default_sequence, load_group, pack, pack_sequence, BalanceIssue, FillBias, IssueKind, LoadPriority, PackError, PackRequest, PackResult, SecuringClass};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
@@ -43,11 +45,14 @@ pub struct Objective {
     pub dunnage: f64,
     /// Per 100 mm of the smallest stability margin (capped at 100 mm).
     pub stability: f64,
+    /// Per percentage point of load-balance excess (CTU Code window, central
+    /// share, vehicle axles; see `BalanceReport::excess`).
+    pub balance: f64,
 }
 
 impl Default for Objective {
     fn default() -> Self {
-        Objective { density: 1.0, securing: 0.5, dunnage: 0.2, stability: 1.0 }
+        Objective { density: 1.0, securing: 0.5, dunnage: 0.2, stability: 1.0, balance: 0.3 }
     }
 }
 
@@ -111,6 +116,15 @@ pub struct Score {
     pub dunnage_mm: f64,
     /// Smallest stability margin of any unit, mm.
     pub min_margin: f64,
+    /// Load-balance warnings over all containers (floor pressure not included).
+    #[serde(default)]
+    pub balance_issues: usize,
+    /// Sum of the balance excess over all containers, percentage points.
+    #[serde(default)]
+    pub balance_excess: f64,
+    /// Units whose floor pressure exceeds the floor rating.
+    #[serde(default)]
+    pub floor_overloads: usize,
 }
 
 impl Score {
@@ -136,12 +150,20 @@ impl Score {
             .containers
             .iter()
             .map(|c| c.transport.iter().map(|t| t.gaps.iter().map(|g| g.gap_mm).sum::<f64>()).fold(0.0, f64::max))
-            .sum();
+            .sum::<f64>()
+            + 0.0; // an empty float sum is −0.0
         let min_margin = r.containers.iter().map(|c| c.metrics.min_support_margin).filter(|m| m.is_finite()).fold(f64::INFINITY, f64::min);
-        let lash_share = if r.packed_units > 0 { lashing.len() as f64 / r.packed_units as f64 } else { 0.0 };
+        let balance_issues = r.containers.iter().map(|c| container_issues(&c.balance)).sum();
+        let balance_excess: f64 = r.containers.iter().map(|c| c.balance.excess).sum();
+        let floor_overloads =
+            r.containers.iter().flat_map(|c| &c.balance.issues).filter(|i| matches!(i, BalanceIssue::FloorPressure { .. })).count();
+        let share = |n: usize| if r.packed_units > 0 { n as f64 / r.packed_units as f64 } else { 0.0 };
         let margin_term = if min_margin.is_finite() { min_margin.clamp(0.0, 100.0) / 100.0 } else { 1.0 };
-        let value = obj.density * r.volume_utilization * 100.0 - obj.securing * lash_share * 100.0 - obj.dunnage * dunnage_mm / 1000.0
-            + obj.stability * margin_term;
+        // Units over the floor rating need load-spreading beams: securing effort.
+        let value = obj.density * r.volume_utilization * 100.0 - obj.securing * (share(lashing.len()) + share(floor_overloads)) * 100.0
+            - obj.dunnage * dunnage_mm / 1000.0
+            + obj.stability * margin_term
+            - obj.balance * balance_excess;
         Score {
             all_packed: r.packed_units == r.requested_units,
             packed_units: r.packed_units,
@@ -153,6 +175,9 @@ impl Score {
             lashing_kn: force.values().sum(),
             dunnage_mm,
             min_margin,
+            balance_issues,
+            balance_excess,
+            floor_overloads,
         }
     }
 
@@ -514,6 +539,9 @@ fn worst() -> Score {
         lashing_kn: 0.0,
         dunnage_mm: 0.0,
         min_margin: 0.0,
+        balance_issues: 0,
+        balance_excess: 0.0,
+        floor_overloads: 0,
     }
 }
 

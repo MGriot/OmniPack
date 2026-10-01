@@ -20,15 +20,7 @@ fn orientations_with_vertical(flags: [bool; 3]) -> Vec<Orientation> {
 pub fn br_like(class: usize, seed: u64) -> Option<PackRequest> {
     let types = *[3usize, 5, 8, 10, 12, 15, 20].get(class.checked_sub(1)?)?;
     let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_mul(1000).wrapping_add(class as u64));
-    let container = ContainerSpec {
-        id: format!("BR{class}-{seed}"),
-        width: 233.0,
-        height: 220.0,
-        depth: 587.0,
-        max_payload: None,
-        axles: None,
-        cog_limits: CogLimits::default(),
-    };
+    let container = ContainerSpec::new(&format!("BR{class}-{seed}"), 233.0, 220.0, 587.0);
     let mut items: Vec<ItemSpec> = (0..types)
         .map(|t| {
             let (l, w, h) = (rng.gen_range(30..=120) as f64, rng.gen_range(25..=100) as f64, rng.gen_range(20..=80) as f64);
@@ -103,15 +95,7 @@ pub fn parse_thpack(text: &str, n: usize) -> Result<PackRequest, String> {
             });
         }
         if p == n {
-            let container = ContainerSpec {
-                id: format!("thpack-{n}"),
-                width: w,
-                height: h,
-                depth: l,
-                max_payload: None,
-                axles: None,
-                cog_limits: CogLimits::default(),
-            };
+            let container = ContainerSpec::new(&format!("thpack-{n}"), w, h, l);
             return Ok(PackRequest { container, items, options: PackOptions::default() });
         }
     }
@@ -151,15 +135,7 @@ pub fn shapes(seed: u64) -> PackRequest {
         ItemSpec { stop: 1, max_load_on_top: Some(150.0), ..item("carton", Shape::Box { w: 400.0, h: 300.0, d: 300.0 }, 10.0, q(10, 20), "#ff9da7") },
     ];
     PackRequest {
-        container: ContainerSpec {
-            id: "20ft".into(),
-            width: 2350.0,
-            height: 2390.0,
-            depth: 5900.0,
-            max_payload: Some(28000.0),
-            axles: None,
-            cog_limits: CogLimits::default(),
-        },
+        container: ContainerSpec { max_payload: Some(28000.0), ..ContainerSpec::new("20ft", 2350.0, 2390.0, 5900.0) },
         items,
         options: PackOptions::default(),
     }
@@ -231,13 +207,10 @@ pub fn mixed(seed: u64) -> PackRequest {
     ];
     PackRequest {
         container: ContainerSpec {
-            id: "truck".into(),
-            width: 2400.0,
-            height: 2500.0,
-            depth: 7000.0,
             max_payload: Some(12000.0),
             axles: Some([Axle { z: 800.0, max_load: 8000.0 }, Axle { z: 6000.0, max_load: 9000.0 }]),
             cog_limits: CogLimits { max_lateral_offset: Some(300.0), ..Default::default() },
+            ..ContainerSpec::new("truck", 2400.0, 2500.0, 7000.0)
         },
         items,
         options: PackOptions::default(),

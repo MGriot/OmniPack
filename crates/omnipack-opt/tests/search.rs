@@ -22,6 +22,10 @@ fn never_worse_than_the_plain_placer_and_always_valid() {
     let best = &r.solutions[0];
     assert!(!plain.better_than(&best.score), "plain {plain:?} beats {:?}", best.score);
     assert!(r.solutions.iter().all(|s| s.result.is_valid()));
+    for s in &r.solutions {
+        let warnings: usize = s.result.containers.iter().map(|c| omnipack_core::balance::container_issues(&c.balance)).sum();
+        assert_eq!(s.score.balance_issues, warnings);
+    }
     for (i, a) in r.solutions.iter().enumerate() {
         for b in &r.solutions[i + 1..] {
             assert!(difference(&a.result, &b.result) >= MIN_DIFFERENCE);

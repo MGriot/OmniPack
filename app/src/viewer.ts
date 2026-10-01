@@ -26,6 +26,14 @@ const DIMMED = 0.1;
 /** Opacity of the "next item" preview. */
 const GHOST = 0.4;
 
+/** Floor markings for the load balance: the allowed centre-of-gravity window
+ * (x0, z0, x1, z1) and the quarter lines of the length. */
+export interface BalanceGuides {
+  window: [number, number, number, number];
+  inside: boolean;
+  quarters: [number, number];
+}
+
 export class PlanViewer {
   private engine: Engine;
   private scene: Scene;
@@ -111,12 +119,14 @@ export class PlanViewer {
     colorOf: (p: Placement) => string,
     meshOf: (p: Placement) => { key: string; data: RenderMesh },
     cog: [number, number, number] | null,
+    guides: BalanceGuides | null = null,
   ) {
     this.clear();
     const [W, H, D] = plan.size;
     const sizeChanged = W !== this.size[0] || H !== this.size[1] || D !== this.size[2];
     this.size = plan.size;
     this.drawContainer(W, H, D);
+    if (guides) this.drawGuides(W, guides);
 
     for (const p of plan.placements) {
       const { key, data } = meshOf(p);
@@ -159,6 +169,30 @@ export class PlanViewer {
     floor.material = fm;
     floor.isPickable = false;
     this.staticMeshes.push(frame, door, floor);
+  }
+
+  private drawGuides(W: number, g: BalanceGuides) {
+    const y = 2; // just above the floor
+    const [x0, z0, x1, z1] = g.window;
+    const box = MeshBuilder.CreateLines("cogWindow", {
+      points: [new Vector3(x0, y, z0), new Vector3(x1, y, z0), new Vector3(x1, y, z1), new Vector3(x0, y, z1), new Vector3(x0, y, z0)],
+    }, this.scene);
+    box.color = g.inside ? new Color3(0.25, 0.85, 0.55) : new Color3(1, 0.3, 0.35);
+    box.renderingGroupId = 1;
+    box.isPickable = false;
+    const quarters = MeshBuilder.CreateDashedLines("quarters", {
+      points: [new Vector3(0, y, g.quarters[0]), new Vector3(W, y, g.quarters[0])],
+      dashNb: 24,
+    }, this.scene);
+    const quarters2 = MeshBuilder.CreateDashedLines("quarters2", {
+      points: [new Vector3(0, y, g.quarters[1]), new Vector3(W, y, g.quarters[1])],
+      dashNb: 24,
+    }, this.scene);
+    for (const q of [quarters, quarters2]) {
+      q.color = new Color3(0.55, 0.6, 0.7);
+      q.isPickable = false;
+    }
+    this.staticMeshes.push(box, quarters, quarters2);
   }
 
   private drawCog([x, y, z]: [number, number, number]) {

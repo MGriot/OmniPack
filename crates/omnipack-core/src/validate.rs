@@ -3,13 +3,15 @@
 //! Recomputes everything from the placement records alone (no placer state):
 //! bounds, exact interpenetration, supports in loading order, support area,
 //! own and stacked centre-of-gravity margins, rolling, full load propagation to
-//! the floor, container payload, axle loads and centre-of-gravity limits.
-//! [`transport`] adds the quasi-static transport checks on top.
+//! the floor, container payload, axle loads, centre-of-gravity limits and the
+//! door opening. [`transport`] adds the quasi-static transport checks on top;
+//! [`check_plan`] does both (and the floor pressures) from one analysis.
 
 use crate::model::{ContainerSpec, ItemSpec, PackOptions, PhysicsOptions, TransportCase, ANTI_SLIP_FRICTION};
 use crate::plan::{Direction, GapFill, Impact, IssueKind, Metrics, Placement, SecuringClass, TransportIssue, TransportResult, Violation};
 use crate::scene::{self, compute_supports, Roll, SupportInfo};
-use crate::statics::{add, effective_mass, load_at, resultant, Load, Support};
+use crate::statics::{add, effective_mass, load_at, resultant, Load, Support, SupportSet};
+use omnipack_geom::hull2d::polygon_area;
 use omnipack_geom::{overlaps, ray_exit_distance, tol, Body, OrientedShape, Pt2};
 use std::collections::HashMap;
 
@@ -46,6 +48,17 @@ struct Analysis<'a> {
     resultant: Vec<Option<Pt2>>,
     /// Problems found while propagating loads (tipping, overload).
     statics_violations: Vec<Violation>,
+    /// What each item puts on the container floor.
+    floor: Vec<FloorLoad>,
+}
+
+/// Load an item puts on the container floor.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FloorLoad {
+    /// kg (own weight plus the share of everything it carries).
+    pub load: f64,
+    /// kg/m² over the contact area (0 = not on the floor).
+    pub pressure: f64,
 }
 
 fn analyze<'a>(
@@ -93,6 +106,7 @@ fn analyze<'a>(
     let mut incoming_y = vec![0.0; n];
     let mut res = vec![None; n];
     let mut statics_violations = Vec::new();
+    let mut floor = vec![FloorLoad::default(); n];
     let mut top_down: Vec<usize> = (0..n).collect();
     top_down.sort_by(|&a, &b| placements[b].seq.cmp(&placements[a].seq));
     for &i in &top_down {
@@ -118,21 +132,66 @@ fn analyze<'a>(
         let column_y = own * com[1] + incoming_y[i];
         if let Some(shares) = scene::distribute(&info.set, total, held) {
             for (s, l) in shares {
-                if let Support::Item(j) = s {
-                    incoming[j] = add(incoming[j], l);
-                    incoming_y[j] += column_y * l[0] / total[0];
+                match s {
+                    Support::Item(j) => {
+                        incoming[j] = add(incoming[j], l);
+                        incoming_y[j] += column_y * l[0] / total[0];
+                    }
+                    Support::Floor => floor[i].load += l[0],
                 }
             }
         }
+        if floor[i].load > 0.0 {
+            floor[i].pressure = floor[i].load / (floor_area(&bodies[i], info) / 1e6);
+        }
     }
 
-    Analysis { bodies, near, infos, roll, required, incoming, incoming_y, resultant: res, statics_violations }
+    Analysis { bodies, near, infos, roll, required, incoming, incoming_y, resultant: res, statics_violations, floor }
+}
+
+/// Floor contact area of a body, mm². Round items on a line or a point are
+/// taken to sit in cradles or chocks that spread their weight over the footprint.
+fn floor_area(body: &Body, info: &SupportInfo) -> f64 {
+    let pts: Vec<Pt2> = info.set.points.iter().zip(&info.set.owners).filter(|(_, o)| **o == Support::Floor).map(|(p, _)| *p).collect();
+    let n = pts.len();
+    // Contact manifolds of curved bottoms scatter in a sliver around the true
+    // contact line: treat anything thinner than DEGENERATE_WIDTH as a line.
+    let floor = SupportSet::new(pts, vec![Support::Floor; n]);
+    if floor.is_degenerate() {
+        body.shape.extents[0] * body.shape.extents[2]
+    } else {
+        polygon_area(&floor.hull)
+    }
 }
 
 pub fn validate(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOptions, placements: &[Placement]) -> Vec<Violation> {
     let spec_of: HashMap<&str, &ItemSpec> = specs.iter().map(|s| (s.id.as_str(), s)).collect();
     let shapes: Vec<OrientedShape> = placements.iter().map(rebuild_shape).collect();
     let a = analyze(container, &spec_of, opts, placements, &shapes);
+    violations(container, &spec_of, opts, placements, &a)
+}
+
+/// Everything the finished plan needs checked, from a single analysis.
+pub struct PlanCheck {
+    pub violations: Vec<Violation>,
+    pub transport: TransportReport,
+    /// Per placement.
+    pub floor_pressure: Vec<FloorLoad>,
+}
+
+/// [`validate`], [`transport_report`] and the floor pressures together.
+pub fn check_plan(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOptions, placements: &[Placement]) -> PlanCheck {
+    let spec_of: HashMap<&str, &ItemSpec> = specs.iter().map(|s| (s.id.as_str(), s)).collect();
+    let shapes: Vec<OrientedShape> = placements.iter().map(rebuild_shape).collect();
+    let a = analyze(container, &spec_of, opts, placements, &shapes);
+    PlanCheck {
+        violations: violations(container, &spec_of, opts, placements, &a),
+        transport: transport_of(container, &spec_of, opts, placements, &a),
+        floor_pressure: a.floor,
+    }
+}
+
+fn violations(container: &ContainerSpec, spec_of: &HashMap<&str, &ItemSpec>, opts: &PackOptions, placements: &[Placement], a: &Analysis) -> Vec<Violation> {
     let size = [container.width, container.height, container.depth];
     let mut v = Vec::new();
 
@@ -153,6 +212,9 @@ pub fn validate(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOption
             if spec.floor_only && b.min[1] > tol::CONTACT {
                 v.push(Violation::NotOnFloor { item: p.instance_id.clone() });
             }
+        }
+        if !passes_door(container, b.shape) {
+            v.push(Violation::DoorTooSmall { item: p.instance_id.clone() });
         }
     }
 
@@ -178,7 +240,7 @@ pub fn validate(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOption
             v.push(Violation::Unstable { item: id.clone(), margin: m, required: a.required[i] });
         }
     }
-    v.extend(a.statics_violations);
+    v.extend(a.statics_violations.iter().cloned());
 
     // Container-level limits.
     let metrics = compute_metrics(container, placements);
@@ -208,6 +270,11 @@ pub fn validate(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOption
         }
     }
     v
+}
+
+/// Whether a unit in this orientation fits through the container's door.
+pub fn passes_door(container: &ContainerSpec, shape: &OrientedShape) -> bool {
+    container.door.is_none_or(|[w, h]| shape.extents[0] <= w + tol::BOUNDS && shape.extents[1] <= h + tol::BOUNDS)
 }
 
 /// Which round items need wedges, in placement order.
@@ -386,8 +453,21 @@ pub fn transport_report(container: &ContainerSpec, specs: &[ItemSpec], opts: &Pa
     let spec_of: HashMap<&str, &ItemSpec> = specs.iter().map(|s| (s.id.as_str(), s)).collect();
     let shapes: Vec<OrientedShape> = placements.iter().map(rebuild_shape).collect();
     let a = analyze(container, &spec_of, opts, placements, &shapes);
+    transport_of(container, &spec_of, opts, placements, &a)
+}
+
+fn transport_of(container: &ContainerSpec, spec_of: &HashMap<&str, &ItemSpec>, opts: &PackOptions, placements: &[Placement], a: &Analysis) -> TransportReport {
+    let phys: &PhysicsOptions = &opts.physics;
+    let n = placements.len();
+    if phys.transport.is_empty() || placements.is_empty() {
+        return TransportReport {
+            results: phys.transport.iter().map(|c| TransportResult { case: c.name.clone(), issues: Vec::new(), gaps: Vec::new() }).collect(),
+            securing: a.roll.iter().map(|r| if *r == Roll::NeedsChocks { SecuringClass::Chocks } else { SecuringClass::Secured }).collect(),
+            impact: vec![None; n],
+        };
+    }
     let size = [container.width, container.height, container.depth];
-    let blk = blocking(&a, size, phys);
+    let blk = blocking(a, size, phys);
     let own_friction = |p: &Placement| spec_of.get(p.item_id.as_str()).and_then(|s| s.friction).unwrap_or(phys.default_friction).max(0.0);
     // Lowest friction among the item and everything it rests on.
     let mu: Vec<f64> = placements
@@ -462,12 +542,14 @@ pub fn transport_report(container: &ContainerSpec, specs: &[ItemSpec], opts: &Pa
                         tip_ratio = if arm > 0.0 { acc * lever[i] / (case.vertical_min * arm) } else { f64::INFINITY };
                         tips = acc * lever[i] > case.vertical_min * arm + 1e-9;
                         if tips && !blk.tip[i][di] {
+                            let required = column_mass * G * (acc - case.vertical_min * arm / lever[i]) / 1000.0;
                             issues.push(TransportIssue {
                                 item: p.instance_id.clone(),
                                 kind: IssueKind::Tipping,
                                 direction: Some(*dir),
                                 acceleration: acc,
-                                required: column_mass * G * (acc - case.vertical_min * arm / lever[i]) / 1000.0,
+                                required,
+                                lashings: phys.lashing.against_tipping(required, lever[i], a.bodies[i].shape.extents[1]),
                             });
                             raise(&mut securing[i], SecuringClass::Lashing);
                         }
@@ -481,6 +563,7 @@ pub fn transport_report(container: &ContainerSpec, specs: &[ItemSpec], opts: &Pa
                         direction: Some(*dir),
                         acceleration: acc,
                         required: column_mass * G * (acc - mu[i] * case.vertical_min) / 1000.0,
+                        lashings: phys.lashing.against_sliding(column_mass, acc, mu[i], case.vertical_min),
                     });
                     raise(&mut securing[i], SecuringClass::Lashing);
                 }
@@ -539,6 +622,7 @@ pub fn transport_report(container: &ContainerSpec, specs: &[ItemSpec], opts: &Pa
                         direction: None,
                         acceleration: case.vertical_max,
                         required: dynamic - capacity,
+                        lashings: 0,
                     });
                     raise(&mut securing[i], SecuringClass::Overloaded);
                 }

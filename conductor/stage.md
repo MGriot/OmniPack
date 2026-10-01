@@ -37,6 +37,15 @@ Placer with extreme-point projection and contact/blocking tie-breaks: BR1–7
 average 79.0% (was 75.9%). The search (5 s per instance) reaches 83.4%, and
 every plan still validates. See `docs/research/packing-stability.md`.
 
+## Load balance (0.5.0, 2026-10-01)
+CTU Code checks (CoG ±5% L/W, at least 60% of the mass in the middle half, CoG in
+the lower half), VGM, tractor + semi-trailer axle loads (EU 96/53/EC as amended by
+2015/719), floor pressure against the floor rating, and the door opening. Also a
+direct-lashing count (EN 12195-1) and sea cases from ship motion. The balance
+checks are warnings (`balance.rs`); the door opening is a hard rule. Optional
+lengthwise centring rebuilds the moved load through the placer's checks, so every
+loading step stays valid.
+
 ## How to verify
 ```
 cargo test --workspace

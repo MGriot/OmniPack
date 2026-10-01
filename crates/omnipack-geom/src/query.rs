@@ -45,6 +45,13 @@ impl<'a> Body<'a> {
     }
 }
 
+/// Runs a parry query, turning a panic inside it into `None`. GJK/EPA can hit
+/// an `unwrap` on degenerate simplices (seen with octagonal prisms); callers
+/// then take the conservative answer, as they do for query errors.
+fn guarded<T>(f: impl FnOnce() -> T) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()
+}
+
 fn aabbs_overlap(a: &Body, b: &Body, margin: f64) -> bool {
     let (amin, amax, bmin, bmax) = (a.min, a.max(), b.min, b.max());
     (0..3).all(|k| amin[k] < bmax[k] - margin && bmin[k] < amax[k] - margin)
@@ -67,17 +74,17 @@ pub fn overlaps(a: &Body, b: &Body) -> bool {
     let (pa, pb) = (a.shape.isometry_at(a.min), b.shape.isometry_at(b.min));
     let (ga, gb) = (a.shape.parry().as_ref(), b.shape.parry().as_ref());
     // GJK can disagree with itself depending on argument order: ask both ways.
-    let hit = |r: Result<bool, _>| r.unwrap_or(true);
-    if !hit(query::intersection_test(&pa, ga, &pb, gb)) && !hit(query::intersection_test(&pb, gb, &pa, ga)) {
+    let hit = |r: Option<Result<bool, _>>| r.and_then(Result::ok).unwrap_or(true);
+    if !hit(guarded(|| query::intersection_test(&pa, ga, &pb, gb))) && !hit(guarded(|| query::intersection_test(&pb, gb, &pa, ga))) {
         return false;
     }
     // EPA depth estimates can be asymmetric for some pairs: take the deeper one.
-    let depth = |r: Result<Option<query::Contact>, _>| match r {
-        Ok(Some(c)) => -c.dist,
-        Ok(None) => 0.0,
-        Err(_) => f64::INFINITY,
+    let depth = |r: Option<Result<Option<query::Contact>, _>>| match r {
+        Some(Ok(Some(c))) => -c.dist,
+        Some(Ok(None)) => 0.0,
+        _ => f64::INFINITY,
     };
-    let d = depth(query::contact(&pa, ga, &pb, gb, 0.0)).max(depth(query::contact(&pb, gb, &pa, ga, 0.0)));
+    let d = depth(guarded(|| query::contact(&pa, ga, &pb, gb, 0.0))).max(depth(guarded(|| query::contact(&pb, gb, &pa, ga, 0.0))));
     d > tol::PENETRATION
 }
 
@@ -111,19 +118,21 @@ pub fn drop_height<'a>(moving: &OrientedShape, x: f64, z: f64, obstacles: impl I
             stop_at_penetration: true,
             compute_impact_geometry_on_penetration: false,
         };
-        let hit = query::cast_shapes(
-            &start_iso,
-            &Vector::new(0.0, -1.0, 0.0),
-            moving.parry().as_ref(),
-            &o.shape.isometry_at(o.min),
-            &Vector::zeros(),
-            o.shape.parry().as_ref(),
-            opts,
-        );
+        let hit = guarded(|| {
+            query::cast_shapes(
+                &start_iso,
+                &Vector::new(0.0, -1.0, 0.0),
+                moving.parry().as_ref(),
+                &o.shape.isometry_at(o.min),
+                &Vector::zeros(),
+                o.shape.parry().as_ref(),
+                opts,
+            )
+        });
         match hit {
-            Ok(Some(h)) => rest = rest.max(y_start - h.time_of_impact),
-            Ok(None) => {}
-            Err(_) => rest = rest.max(top),
+            Some(Ok(Some(h))) => rest = rest.max(y_start - h.time_of_impact),
+            Some(Ok(None)) => {}
+            _ => rest = rest.max(top),
         }
     }
     // Shape casts can miss for some pairs; never return an interpenetrating
@@ -186,7 +195,7 @@ pub fn support_contacts(upper: &Body, lower: &Body) -> Vec<SupportContact> {
 fn manifold_support_points(pos1: &Isometry<f64>, g1: &dyn Shape, pos2: &Isometry<f64>, g2: &dyn Shape) -> Vec<SupportContact> {
     let pos12 = pos1.inv_mul(pos2);
     let mut manifolds: Vec<ContactManifold<(), ()>> = Vec::new();
-    if DefaultQueryDispatcher.contact_manifolds(&pos12, g1, g2, tol::CONTACT, &mut manifolds, &mut None).is_err() {
+    if guarded(|| DefaultQueryDispatcher.contact_manifolds(&pos12, g1, g2, tol::CONTACT, &mut manifolds, &mut None)).is_none_or(|r| r.is_err()) {
         return Vec::new();
     }
     let mut out = Vec::new();

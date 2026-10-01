@@ -1,7 +1,7 @@
 //! Tauri shell: exposes the packing engine and a small file-based catalog to
 //! the web UI. All computation runs in-process; there is no server or port.
 
-use omnipack_core::{generate, pack, PackRequest, PackResult, TransportCase};
+use omnipack_core::{generate, pack, ContainerSpec, PackRequest, PackResult, RoadVehicle, ShipCase, ShipMotion, TransportCase};
 use omnipack_geom::{Orientation, OrientedShape, RenderMesh, Shape};
 use omnipack_opt::{optimize, OptimizeOptions, OptimizeResult};
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,24 @@ fn sample_request(kind: String, seed: u64) -> CmdResult<PackRequest> {
 #[tauri::command]
 fn transport_presets() -> Vec<TransportCase> {
     TransportCase::presets()
+}
+
+/// Typical ISO containers and a road semi-trailer.
+#[tauri::command]
+fn container_presets() -> Vec<ContainerSpec> {
+    ContainerSpec::presets()
+}
+
+/// Tractor + semi-trailer combinations for the axle-load check.
+#[tauri::command]
+fn vehicle_presets() -> Vec<RoadVehicle> {
+    RoadVehicle::presets()
+}
+
+/// A sea transport case from the ship's roll and pitch at a stowage position.
+#[tauri::command]
+fn ship_motion_case(motion: ShipMotion) -> ShipCase {
+    TransportCase::from_ship(&motion)
 }
 
 /// Triangle mesh of a shape in one orientation, centred on its bounding box,
@@ -163,6 +181,9 @@ pub fn run() {
             cancel_optimize,
             sample_request,
             transport_presets,
+            container_presets,
+            vehicle_presets,
+            ship_motion_case,
             shape_mesh,
             item_preview,
             catalog_list,

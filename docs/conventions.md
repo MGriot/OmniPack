@@ -8,6 +8,11 @@
   `size` is the AABB size. The 3D viewer maps these directly to Babylon's Y-up frame.
 - Tolerances live in one place: `crates/omnipack-geom/src/tol.rs`
   (contact 0.05 mm, penetration 0.01 mm).
+- Standards and textbooks (CTU Code, EN 12195-1) usually write x for the length,
+  y for the width and z for the height, with the origin at a bottom corner. In
+  OmniPack those are **Z** (length; front wall at 0, door at `depth`), **X** (width)
+  and **Y** (height). So the CTU "longitudinal eccentricity" is the offset along Z
+  and the "transverse" one is the offset along X.
 
 ## Shapes and orientations
 | Shape | Parameters | Orientations used |
@@ -65,6 +70,23 @@ would tip on a side that no wall or already loaded neighbour (reaching above its
 of gravity, within `max_fill_gap`) holds. Units loaded later are not counted on. When
 no position passes, the unit is placed anyway and flagged for lashing. The ★ Best search
 prefers plans with fewer such units over denser ones.
+
+## Load balance and vehicle
+- `container.door: [width, height]`: the clear door opening. Units must pass it as
+  loaded (their X and Y extents). This is a hard rule.
+- `container.tare_mass` (kg): for the VGM and the vehicle axle loads.
+- `container.floor_rating` (kg/m²): units above it are reported for load-spreading
+  beams.
+- `container.vehicle`: a tractor + semi-trailer. Distances in mm along the vehicle,
+  rearwards positive. `container_front` runs from the kingpin to the container's
+  front wall; the other distances run from the kingpin (trailer) or from the steer
+  axle (tractor). The limits are in kg.
+- `options.balance`: `ctu_checks`, `max_eccentricity` (0.05), `min_central_share`
+  (0.6), `max_cog_height` (0.5), `centre_lengthwise` (false). Results go to
+  `ContainerPlan.balance` as warnings; they never make a plan invalid.
+- `options.physics.lashing`: `capacity_dan`, `anchor_dan`, `vertical_angle`,
+  `horizontal_angle` for the lashing count in each transport issue (`lashings`).
+- `Placement.floor_pressure` (kg/m²; 0 = not on the floor).
 
 ## JSON
 Request: `PackRequest { container, items, options }` (see

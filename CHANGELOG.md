@@ -4,6 +4,65 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.5.0] - 2026-10-01
+
+Physics and load balance from the CTU Code, SOLAS, ISO 1496-1, EN 12195-1 and the EU
+weights directive.
+
+### Added
+- **Load balance report** (`ContainerPlan.balance`). These are warnings: a plan stays
+  valid.
+  - **CTU Code checks:** the cargo's centre of gravity within ±5% of the length and
+    the width from the middle, at least 60% of the mass in the middle half of the
+    length (25–75%), and the centre of gravity below half the height. All three
+    limits are configurable.
+  - Also reported: the mass in each half, and the free length to the front wall and
+    the door.
+- **Lengthwise centring** (option, off by default): slides a partial load by the
+  shortest distance that meets the centre-of-gravity window and the axle limits. The
+  moved load is rebuilt through the placer's checks, so every loading step stays
+  verified.
+- **VGM** (SOLAS VI/2): container tare + cargo.
+- **Road vehicle axle loads:** a tractor + semi-trailer model, split by moments into
+  steer axle, drive axle, trailer axle group and gross mass. It is checked against
+  the limits of Directive 96/53/EC as amended by 2015/719 (10 t, 11.5 t, 24 t,
+  44 t). Two presets.
+- **Floor pressure** per unit (ISO 1496-1). Above the floor rating, the area its
+  load must be spread over with beams is reported. The app has a "Floor pressure"
+  colour mode.
+- **Door opening:** units must pass the door as loaded. This is a hard rule:
+  too-tall units are laid down, or left out as `door_too_small`.
+- **Container presets:** 20 ft, 40 ft and 40 ft high cube (inside size, door, tare,
+  payload, floor rating), and a 13.6 m semi-trailer.
+- **Direct lashing count** (EN 12195-1). Each sliding or tipping issue also gives
+  the number of lashings, from the friction factor 0.75, the angles, and the weaker
+  of strap (2000 daN) and lashing point (1000 daN).
+- **Sea case from ship motion:**
+  - the roll period from beam and GM (`T = 2cB/√GM`);
+  - accelerations from roll, pitch, surge and heave at the stowage height and
+    position;
+  - warnings for stiff or tender ships.
+- **App:**
+  - a balance section with ✓ / ⚠ per check, and the CoG window and quarter lines on
+    the 3D floor;
+  - EPAL 1 / EPAL 2 pallet items, and a "Metal on wooden floor" friction preset;
+  - lashings and floor pressure in the CSV load list;
+  - gaps of 150 mm or more marked "airbag".
+- **★ Best search:** balance excess and units over the floor rating now cost value
+  (`Objective.balance`). The score reports `balance_issues` and `floor_overloads`.
+
+### Changed
+- Road preset: the vertical factor for dynamic stacking is 1.3 (±0.3 g road
+  vibration). Friction still uses 1.0, as in EN 12195-1.
+- The validator and the transport report share one analysis per plan, which makes
+  the search faster.
+
+### Fixed
+- A rare crash in parry3d's contact solver (seen with octagonal prisms) is now
+  caught. The query then takes the conservative answer.
+- Phone layout: two-column settings no longer overflow the screen width.
+- The search summary no longer shows "dunnage -0.00 m".
+
 ## [0.4.0] - 2026-09-27
 
 ### Fixed

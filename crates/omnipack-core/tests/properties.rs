@@ -71,17 +71,10 @@ fn request() -> impl Strategy<Value = PackRequest> {
             ],
             any::<bool>(),
         ),
+        (any::<bool>(), prop::option::of((150.0..233.0f64, 150.0..220.0f64))),
     )
-        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks))| PackRequest {
-            container: ContainerSpec {
-                id: "c".into(),
-                width: 233.0,
-                height: 220.0,
-                depth: 400.0,
-                max_payload: None,
-                axles: None,
-                cog_limits: CogLimits::default(),
-            },
+        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks), (centre_lengthwise, door))| PackRequest {
+            container: ContainerSpec { door: door.map(|(w, h)| [w, h]), floor_rating: Some(2500.0), ..ContainerSpec::new("c", 233.0, 220.0, 400.0) },
             items,
             options: PackOptions {
                 bias,
@@ -91,6 +84,7 @@ fn request() -> impl Strategy<Value = PackRequest> {
                 priority,
                 physics: PhysicsOptions { use_chocks, ..Default::default() },
                 max_containers: 3,
+                balance: BalanceOptions { centre_lengthwise, ..Default::default() },
                 ..Default::default()
             },
         })

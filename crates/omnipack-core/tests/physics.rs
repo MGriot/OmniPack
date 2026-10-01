@@ -6,15 +6,7 @@ use omnipack_core::*;
 use omnipack_geom::{Orientation, Shape};
 
 fn container() -> ContainerSpec {
-    ContainerSpec {
-        id: "c".into(),
-        width: 1000.0,
-        height: 1000.0,
-        depth: 1000.0,
-        max_payload: None,
-        axles: None,
-        cog_limits: CogLimits::default(),
-    }
+    ContainerSpec::new("c", 1000.0, 1000.0, 1000.0)
 }
 
 fn spec(id: &str, shape: Shape, mass: f64) -> ItemSpec {
@@ -55,6 +47,7 @@ fn place(item: &ItemSpec, seq: usize, pos: [f64; 3]) -> Placement {
         needs_chocks: false,
         securing: SecuringClass::Secured,
         impact: None,
+        floor_pressure: 0.0,
     }
 }
 
@@ -200,6 +193,8 @@ fn free_standing_tall_item_slides_and_tips_under_braking() {
     let slide = found.iter().find(|i| i.kind == IssueKind::Sliding && i.direction == Some(Direction::Forward)).unwrap();
     // 100 kg * 9.81 * (0.8 - 0.4) = 392.4 N
     assert!((slide.required - 0.3924).abs() < 1e-3, "{slide:?}");
+    // One 1000 daN direct lashing holds either.
+    assert!(found.iter().filter(|i| i.kind != IssueKind::StackOverload).all(|i| i.lashings == 1), "{found:?}");
 }
 
 #[test]
@@ -500,4 +495,86 @@ fn heavy_top_does_not_make_the_stack_below_tip() {
     let r = pack(&req).unwrap();
     assert!(r.is_valid(), "{:?}", r.containers.iter().map(|c| &c.violations).collect::<Vec<_>>());
     assert_eq!(tipping_count(&r), 0, "{:?}", r.containers.iter().map(|c| &c.transport).collect::<Vec<_>>());
+}
+
+#[test]
+fn units_must_pass_the_door() {
+    // 2300 mm tall: fits inside a 2393 mm high container, not through its 2280 mm door.
+    let tall = spec("tall", Shape::Box { w: 1000.0, h: 2300.0, d: 1000.0 }, 100.0);
+    let container = ContainerSpec::presets()[0].clone();
+    let mut req = PackRequest { container: container.clone(), items: vec![ItemSpec { upright_only: true, ..tall.clone() }], options: PackOptions::default() };
+    let r = pack(&req).unwrap();
+    assert_eq!(r.unpacked.len(), 1);
+    assert_eq!(r.unpacked[0].reason, UnpackReason::DoorTooSmall);
+    // Allowed to lie down, it goes in lying.
+    req.items[0].upright_only = false;
+    let r = pack(&req).unwrap();
+    assert!(r.is_valid() && r.packed_units == 1, "{:?}", r.unpacked);
+    let p = &r.containers[0].placements[0];
+    assert!(p.size[0] <= 2340.0 && p.size[1] <= 2280.0, "{:?}", p.size);
+    // A hand-made plan that ignores the door is rejected.
+    let v = validate(&container, std::slice::from_ref(&tall), &opts(), &[place(&tall, 0, [0.0; 3])]);
+    assert!(v.iter().any(|v| matches!(v, Violation::DoorTooSmall { .. })), "{v:?}");
+}
+
+#[test]
+fn concentrated_load_over_the_floor_rating_is_reported() {
+    // 3 t on 0.5 m × 0.5 m = 12 t/m² on a 2.5 t/m² floor: spread over 1.2 m².
+    let coil = spec("coil", Shape::Box { w: 500.0, h: 500.0, d: 500.0 }, 3000.0);
+    let c = ContainerSpec { floor_rating: Some(2500.0), ..ContainerSpec::new("c", 2000.0, 2000.0, 2000.0) };
+    let r = pack(&PackRequest { container: c, items: vec![coil], options: PackOptions::default() }).unwrap();
+    let plan = &r.containers[0];
+    assert!((plan.placements[0].floor_pressure - 12_000.0).abs() < 1.0, "{}", plan.placements[0].floor_pressure);
+    let area = plan.balance.issues.iter().find_map(|i| match i {
+        BalanceIssue::FloorPressure { spread_area, .. } => Some(*spread_area),
+        _ => None,
+    });
+    assert!(area.is_some_and(|a| (a - 1.2).abs() < 1e-6), "{:?}", plan.balance.issues);
+}
+
+#[test]
+fn lying_cylinder_spreads_its_weight_over_the_footprint() {
+    // A pipe lying on the floor touches it along a line; the contact solver
+    // returns a sliver around it, which must not count as a tiny area.
+    let pipe = ItemSpec { allowed_orientations: Some(vec![Orientation::Hwd]), ..spec("pipe", Shape::Cylinder { radius: 150.0, length: 1800.0 }, 90.0) };
+    let c = ContainerSpec { floor_rating: Some(2500.0), ..ContainerSpec::new("c", 2400.0, 2000.0, 2000.0) };
+    let r = pack(&PackRequest { container: c, items: vec![pipe], options: PackOptions::default() }).unwrap();
+    let plan = &r.containers[0];
+    let p = &plan.placements[0];
+    assert!(p.size[1] < 301.0, "lying: {:?}", p.size);
+    // 90 kg over 1800 × 300 mm = 0.54 m².
+    assert!((p.floor_pressure - 90.0 / 0.54).abs() < 1.0, "{}", p.floor_pressure);
+    assert!(plan.balance.issues.iter().all(|i| !matches!(i, BalanceIssue::FloorPressure { .. })), "{:?}", plan.balance.issues);
+}
+
+#[test]
+fn centring_moves_a_partial_load_lengthwise() {
+    let cube = ItemSpec { quantity: 4, ..spec("cube", Shape::Box { w: 1000.0, h: 1000.0, d: 1000.0 }, 500.0) };
+    let mut req = PackRequest { container: ContainerSpec::new("c", 2000.0, 2000.0, 8000.0), items: vec![cube], options: PackOptions::default() };
+    let before = pack(&req).unwrap();
+    let b = &before.containers[0].balance;
+    assert!(b.issues.iter().any(|i| matches!(i, BalanceIssue::CogLengthwise { .. })), "{b:?}");
+    assert_eq!(b.shift, 0.0);
+    req.options.balance.centre_lengthwise = true;
+    let after = pack(&req).unwrap();
+    assert!(after.is_valid(), "{:?}", after.containers[0].violations);
+    let a = &after.containers[0].balance;
+    assert!(a.shift > 0.0 && a.lengthwise_offset.abs() <= 0.05 * 8000.0 + 0.5, "{a:?}");
+    assert!(a.central_share >= 0.6 && a.issues.is_empty(), "{a:?}");
+    // Both load ends are braced (secure_load_end), so securing does not change.
+    let count = |r: &PackResult| r.containers[0].transport.iter().map(|t| t.issues.len()).sum::<usize>();
+    assert_eq!(count(&before), count(&after));
+}
+
+#[test]
+fn vgm_and_vehicle_axle_loads_are_reported() {
+    let mut c = ContainerSpec::presets()[1].clone();
+    c.vehicle = Some(RoadVehicle::presets()[0].clone());
+    let crate_ = ItemSpec { quantity: 10, ..spec("crate", Shape::Box { w: 1100.0, h: 1000.0, d: 1100.0 }, 1500.0) };
+    let r = pack(&PackRequest { container: c, items: vec![crate_], options: PackOptions::default() }).unwrap();
+    let b = &r.containers[0].balance;
+    assert_eq!(b.vgm, Some(3750.0 + 15_000.0));
+    let v = b.vehicle.as_ref().unwrap();
+    assert!((v.steer + v.drive + v.trailer - v.gross).abs() < 1e-6, "{v:?}");
+    assert!((v.gross - (18_750.0 + 4800.0 + 7500.0)).abs() < 1e-6);
 }

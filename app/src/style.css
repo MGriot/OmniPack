@@ -57,8 +57,9 @@ main { display: grid; grid-template-columns: 360px 1fr 320px; height: calc(100% 
 
 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
 h3 .spacer { flex: 1; }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 8px; }
-.grid.two { grid-template-columns: 1fr 1fr; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; }
+.grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.field select, .field input { min-width: 0; max-width: 100%; }
 .field { display: flex; flex-direction: column; gap: 2px; }
 .field > span { color: var(--muted); font-size: 11px; }
 .checks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
@@ -162,3 +163,9 @@ h3 .spacer { flex: 1; }
 .search-picker .pick { text-align: left; font-size: 12px; line-height: 1.35; }
 .search-picker .pick.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); }
 details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin: 4px 0; }
+
+/* Optional sub-sections of the setup (balance limits, vehicle, lashing, ship motion) */
+details.sub { border: 1px solid var(--border, #2a2f3a); border-radius: var(--radius); padding: 2px 8px 6px; margin: 6px 0; }
+details.sub[open] { background: color-mix(in srgb, var(--panel-2, #1b1f27) 60%, transparent); }
+details.sub > .grid { margin-top: 4px; }
+.cases .custom-case button { padding: 0 6px; line-height: 1.4; }

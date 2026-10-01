@@ -68,6 +68,22 @@ fn summary(r: &PackResult) -> String {
             m.accessibility * 100.0,
             m.min_support_margin
         );
+        let b = &c.balance;
+        s += &format!(
+            "\n    balance: CoG {:+.0} mm lengthwise, {:+.0} mm sideways, {:.0}% in the middle half, CoG at {:.0}% of the height{}{}",
+            b.lengthwise_offset,
+            b.lateral_offset,
+            b.central_share * 100.0,
+            b.cog_height_ratio * 100.0,
+            b.vgm.map_or(String::new(), |v| format!(", VGM {v:.0} kg")),
+            if b.shift != 0.0 { format!(", moved {:+.0} mm", b.shift) } else { String::new() }
+        );
+        if let Some(v) = &b.vehicle {
+            s += &format!("\n    axles: steer {:.0}, drive {:.0}, trailer {:.0}, gross {:.0} kg", v.steer, v.drive, v.trailer, v.gross);
+        }
+        for i in &b.issues {
+            s += &format!("\n    balance warning: {i:?}");
+        }
         for v in &c.violations {
             s += &format!("\n    violation: {v:?}");
         }
@@ -87,7 +103,7 @@ fn take_flag(args: &mut Vec<String>, flag: &str) -> Option<String> {
 
 fn score_line(s: &Score) -> String {
     format!(
-        "{} units, {} container(s), {:.1}% vol, {} need lashing ({:.1} kN), dunnage {:.0} mm, min margin {:.1} mm, value {:.2}",
+        "{} units, {} container(s), {:.1}% vol, {} need lashing ({:.1} kN), dunnage {:.0} mm, min margin {:.1} mm, {} balance warnings, {} over floor rating, value {:.2}",
         s.packed_units,
         s.containers,
         s.volume_utilization * 100.0,
@@ -95,6 +111,8 @@ fn score_line(s: &Score) -> String {
         s.lashing_kn,
         s.dunnage_mm,
         s.min_margin,
+        s.balance_issues,
+        s.floor_overloads,
         s.value
     )
 }
