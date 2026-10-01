@@ -56,7 +56,8 @@ fn request() -> impl Strategy<Value = PackRequest> {
             Just(FillBias::FloorFirst),
             Just(FillBias::Longitudinal),
             Just(FillBias::Lateral),
-            Just(FillBias::CornerFirst)
+            Just(FillBias::CornerFirst),
+            Just(FillBias::Learned)
         ],
         0.0..0.4f64,
         0.0..0.8f64,
@@ -71,9 +72,9 @@ fn request() -> impl Strategy<Value = PackRequest> {
             ],
             any::<bool>(),
         ),
-        (any::<bool>(), prop::option::of((150.0..233.0f64, 150.0..220.0f64))),
+        (any::<bool>(), prop::option::of((150.0..233.0f64, 150.0..220.0f64)), prop::collection::vec(-1.0..1.0f64, omnipack_core::placer::NF)),
     )
-        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks), (centre_lengthwise, door))| PackRequest {
+        .prop_map(|(items, bias, stability_margin, min_support_ratio, (stop_order, priority, use_chocks), (centre_lengthwise, door, weights))| PackRequest {
             container: ContainerSpec { door: door.map(|(w, h)| [w, h]), floor_rating: Some(2500.0), ..ContainerSpec::new("c", 233.0, 220.0, 400.0) },
             items,
             options: PackOptions {
@@ -85,6 +86,8 @@ fn request() -> impl Strategy<Value = PackRequest> {
                 physics: PhysicsOptions { use_chocks, ..Default::default() },
                 max_containers: 3,
                 balance: BalanceOptions { centre_lengthwise, ..Default::default() },
+                // Any learned weights: validity never depends on the score.
+                ranker: Some(Ranker { weights, examples: 0, accuracy: 0.0 }),
                 ..Default::default()
             },
         })

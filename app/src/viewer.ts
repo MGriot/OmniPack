@@ -34,11 +34,36 @@ export interface BalanceGuides {
   quarters: [number, number];
 }
 
+/** A point the pointer hits: on the container floor, or on a unit. */
+export interface Hit {
+  point: [number, number, number];
+  placement: Placement | null;
+}
+
+/** Pointer handling for the manual placement mode. */
+export interface Interaction {
+  /** The pointer moved (not dragging). */
+  hover(hit: Hit | null): void;
+  /** A click or tap; return true if it was used (otherwise it selects). */
+  tap(hit: Hit | null): boolean;
+  /** Pointer pressed on a unit: return true to drag it. */
+  dragStart(p: Placement): boolean;
+  drag(hit: Hit | null): void;
+  drop(hit: Hit | null): void;
+}
+
 export class PlanViewer {
   private engine: Engine;
   private scene: Scene;
   private camera: ArcRotateCamera;
   private meshes: { placement: Placement; mesh: Mesh }[] = [];
+  private meshOwner = new Map<Mesh, Placement>();
+  private floor: Mesh | null = null;
+  private interaction: Interaction | null = null;
+  private dragging: Placement | null = null;
+  private dragMoved = false;
+  private ghost: Mesh | null = null;
+  private ghostKey = "";
   private staticMeshes: (Mesh | LinesMesh)[] = [];
   private templates = new Map<string, Mesh>();
   private materials = new Map<string, StandardMaterial>();
@@ -61,11 +86,44 @@ export class PlanViewer {
     const sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.6), this.scene);
     sun.intensity = 0.55;
 
+    // Dragging a unit is handled before the camera sees the pointer, so the
+    // view does not turn while a unit is moved.
+    this.scene.onPrePointerObservable.add((info) => {
+      const act = this.interaction;
+      if (!act) return;
+      if (info.type === PointerEventTypes.POINTERDOWN && info.event.button === 0) {
+        const hit = this.hitAt(null);
+        if (hit?.placement && act.dragStart(hit.placement)) {
+          this.dragging = hit.placement;
+          this.dragMoved = false;
+          info.skipOnPointerObservable = true;
+        }
+      } else if (this.dragging && info.type === PointerEventTypes.POINTERMOVE) {
+        this.dragMoved = true;
+        act.drag(this.hitAt(this.dragging));
+        info.skipOnPointerObservable = true;
+      } else if (this.dragging && info.type === PointerEventTypes.POINTERUP) {
+        const p = this.dragging;
+        this.dragging = null;
+        if (this.dragMoved) act.drop(this.hitAt(p));
+        // A press without movement still selects the unit (as a tap).
+        if (this.dragMoved) info.skipOnPointerObservable = true;
+        this.dragMoved = false;
+      }
+    });
     this.scene.onPointerObservable.add((info) => {
-      if (info.type !== PointerEventTypes.POINTERTAP) return;
-      const picked = info.pickInfo?.pickedMesh;
-      const hit = this.meshes.find((m) => m.mesh === picked);
-      this.pickHandler(hit ? hit.placement : null);
+      const act = this.interaction;
+      switch (info.type) {
+        case PointerEventTypes.POINTERMOVE:
+          if (act && !this.dragging) act.hover(this.hitAt(null));
+          return;
+        case PointerEventTypes.POINTERTAP: {
+          if (act && act.tap(this.hitAt(null))) return;
+          const picked = info.pickInfo?.pickedMesh;
+          this.pickHandler((picked && this.meshOwner.get(picked as Mesh)) ?? null);
+          return;
+        }
+      }
     });
     this.engine.runRenderLoop(() => this.scene.render());
     new ResizeObserver(() => this.engine.resize()).observe(canvas);
@@ -73,6 +131,49 @@ export class PlanViewer {
 
   onPick(cb: (p: Placement | null) => void) {
     this.pickHandler = cb;
+  }
+
+  /** Turns the manual placement pointer handling on (or off with `null`). */
+  setInteraction(i: Interaction | null) {
+    this.interaction = i;
+    if (!i) {
+      this.hideGhost();
+      this.dragging = null;
+    }
+  }
+
+  /** The floor or the visible unit under the pointer, ignoring `skip`. */
+  private hitAt(skip: Placement | null): Hit | null {
+    const pick = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (m) => {
+      if (m === this.floor) return true;
+      const p = this.meshOwner.get(m as Mesh);
+      return !!p && p !== skip && m.isEnabled() && m.visibility > 0.5;
+    });
+    if (!pick?.hit || !pick.pickedPoint) return null;
+    const v = pick.pickedPoint;
+    return { point: [v.x, Math.max(0, v.y), v.z], placement: this.meshOwner.get(pick.pickedMesh as Mesh) ?? null };
+  }
+
+  /** A see-through unit at `min` (AABB minimum corner): green if it fits, red if not. */
+  showGhost(key: string, data: RenderMesh, min: [number, number, number], size: [number, number, number], ok: boolean) {
+    if (!this.ghost || this.ghostKey !== key) {
+      this.ghost?.dispose();
+      this.ghost = this.template(key, data).clone("ghost");
+      this.ghost.isPickable = false;
+      this.ghostKey = key;
+    }
+    const g = this.ghost;
+    g.setEnabled(true);
+    g.position = new Vector3(min[0] + size[0] / 2, min[1] + size[1] / 2, min[2] + size[2] / 2);
+    g.material = this.material(ok ? "#3ecf8e" : "#ff5c6c");
+    g.visibility = 0.45;
+    g.renderOverlay = true;
+    g.overlayColor = ok ? new Color3(0.25, 0.85, 0.55) : new Color3(1, 0.3, 0.35);
+    g.overlayAlpha = 0.25;
+  }
+
+  hideGhost() {
+    this.ghost?.setEnabled(false);
   }
 
   private material(hex: string): StandardMaterial {
@@ -111,7 +212,9 @@ export class PlanViewer {
     for (const { mesh } of this.meshes) mesh.dispose();
     for (const m of this.staticMeshes) m.dispose();
     this.meshes = [];
+    this.meshOwner.clear();
     this.staticMeshes = [];
+    this.floor = null;
   }
 
   show(
@@ -139,6 +242,7 @@ export class PlanViewer {
       mesh.edgesWidth = 3;
       mesh.edgesColor = new Color4(0, 0, 0, 0.5);
       this.meshes.push({ placement: p, mesh });
+      this.meshOwner.set(mesh, p);
     }
     if (cog) this.drawCog(cog);
     if (sizeChanged) this.resetCamera();
@@ -168,6 +272,7 @@ export class PlanViewer {
     fm.specularColor = Color3.Black();
     floor.material = fm;
     floor.isPickable = false;
+    this.floor = floor;
     this.staticMeshes.push(frame, door, floor);
   }
 

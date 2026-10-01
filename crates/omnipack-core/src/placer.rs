@@ -8,7 +8,7 @@
 //! propagating the new weight down to the floor.
 
 use crate::grid::FloorGrid;
-use crate::model::{ContainerSpec, PackOptions, StopOrder, Zone};
+use crate::model::{ContainerSpec, FillBias, PackOptions, StopOrder, Zone};
 use crate::scene::{self, compute_supports, Roll};
 use crate::statics::{add, effective_mass, load_at, resultant, sub, Load, Support, SupportSet};
 use crate::validate::{accel, passes_door, DIRS};
@@ -69,6 +69,52 @@ pub fn tip_deficit(shape: &OrientedShape, physics: &crate::model::PhysicsOptions
     worst.max(0.0)
 }
 
+/// Placement features scored by a learned ranker ([`FillBias::Learned`]),
+/// each in [0, 1]. Lower scores win.
+pub const FEATURES: [&str; NF] = [
+    "x",
+    "y",
+    "depth",
+    "tip_deficit",
+    "lateral_balance",
+    "lengthwise_balance",
+    "side_contact",
+    "blocked_sides",
+    "dead_gaps",
+    "flat_top",
+    "top_height",
+    "heavy_high",
+];
+pub const NF: usize = 12;
+/// Features known before the drop height: x, depth, tipping and the balance terms.
+const KNOWN_BEFORE_Y: [bool; NF] = [true, false, true, true, true, true, false, false, false, false, false, false];
+
+/// The default placement score expressed as feature weights (for the fill
+/// pattern in `opts`): the starting point of training.
+pub fn default_weights(opts: &PackOptions) -> Vec<f64> {
+    let [wx, wy, wz] = opts.bias.weights();
+    let w = opts.weights;
+    let transport = opts.physics.check_sliding && !opts.physics.transport.is_empty();
+    vec![
+        wx,
+        wy,
+        wz,
+        2.0 * TIP_WEIGHT,
+        opts.balance_weight * 1e-2 / 2.0,
+        0.0,
+        -w.contact_area,
+        if transport { -w.blocking } else { 0.0 },
+        w.dead_gap,
+        -w.flat_top,
+        0.0,
+        0.0,
+    ]
+}
+
+fn dot(w: &[f64], f: &[f64; NF]) -> f64 {
+    w.iter().zip(f).map(|(a, b)| a * b).sum()
+}
+
 fn orient_penalty(inst: &Instance, orient: usize) -> f64 {
     match inst.orient_pref {
         Some(p) if p != orient => ORIENT_PREF_WEIGHT,
@@ -95,6 +141,8 @@ pub struct PlacedBody {
     /// Might tip in transport on a side nothing holds (placed as a fallback,
     /// or not checked). Stacking on it then does not make things worse.
     pub may_tip: bool,
+    /// Placed by hand where the static checks fail: nothing may rest on it.
+    pub forced: bool,
 }
 
 pub struct ContainerState<'a> {
@@ -107,6 +155,9 @@ pub struct ContainerState<'a> {
     anchor_keys: HashSet<(i64, i64)>,
     mass: f64,
     moment_x: f64,
+    moment_z: f64,
+    /// Heaviest unit, for the "heavy units low" feature.
+    max_mass: f64,
     scratch: Vec<u32>,
     /// Smallest footprint side of any unit: narrower gaps stay empty.
     min_dim: f64,
@@ -169,6 +220,8 @@ impl<'a> ContainerState<'a> {
             anchor_keys: HashSet::new(),
             mass: 0.0,
             moment_x: 0.0,
+            moment_z: 0.0,
+            max_mass: instances.iter().map(|i| i.mass).fold(0.0, f64::max),
             scratch: Vec::new(),
             min_dim: if min_dim.is_finite() { min_dim } else { 0.0 },
             tip_rejects: 0,
@@ -222,7 +275,63 @@ impl<'a> ContainerState<'a> {
         }
     }
 
-    fn score(&mut self, inst_idx: usize, orient: usize, x: f64, y: f64, z: f64) -> f64 {
+    /// Learned weights, when the fill pattern asks for them.
+    fn learned(&self) -> Option<&'a [f64]> {
+        let opts: &'a PackOptions = self.opts;
+        match (&opts.bias, &opts.ranker) {
+            (FillBias::Learned, Some(r)) if r.weights.len() == NF => Some(&r.weights),
+            _ => None,
+        }
+    }
+
+    /// The features of a candidate position (see [`FEATURES`]).
+    pub fn features(&mut self, inst_idx: usize, orient: usize, x: f64, y: f64, z: f64) -> [f64; NF] {
+        let mut f = self.known_features(inst_idx, orient, x, z);
+        let inst = &self.instances[inst_idx];
+        let shape = &inst.shapes[orient];
+        let (c, h) = (self.spec, shape.extents[1]);
+        let mass_rel = if self.max_mass > 0.0 { inst.mass / self.max_mass } else { 0.0 };
+        let fill = self.opts.physics.max_fill_gap.max(tol::CONTACT);
+        let min_dim = self.min_dim;
+        let (gap, touch, flat) = self.sides(shape, [x, y, z]);
+        f[1] = (y / c.height).clamp(0.0, 1.0);
+        f[6] = touch.iter().sum::<f64>() / 4.0;
+        f[7] = gap.iter().filter(|g| **g <= fill).count() as f64 / 4.0;
+        f[8] = gap.iter().filter(|g| **g > fill && **g < min_dim - tol::CONTACT).count() as f64 / 4.0;
+        f[9] = if flat { 1.0 } else { 0.0 };
+        f[10] = ((y + h) / c.height).clamp(0.0, 1.0);
+        f[11] = mass_rel * f[1];
+        f
+    }
+
+    /// The features that do not depend on the drop height (the others are 0).
+    fn known_features(&self, inst_idx: usize, orient: usize, x: f64, z: f64) -> [f64; NF] {
+        let inst = &self.instances[inst_idx];
+        let c = self.spec;
+        let shape = &inst.shapes[orient];
+        let [w, _, d] = shape.extents;
+        let m = self.mass + inst.mass;
+        let (cx, cz) = (x + shape.com_from_min[0], z + shape.com_from_min[2]);
+        let (com_x, com_z) = if m > 0.0 { ((self.moment_x + inst.mass * cx) / m, (self.moment_z + inst.mass * cz) / m) } else { (x + w / 2.0, z + d / 2.0) };
+        let mut f = [0.0; NF];
+        f[0] = (x / c.width).clamp(0.0, 1.0);
+        f[2] = self.depth_term(inst, z, d).clamp(0.0, 1.0);
+        f[3] = (inst.tip_deficit[orient] / 2.0).clamp(0.0, 1.0);
+        f[4] = (2.0 * (com_x - c.width / 2.0).abs() / c.width).clamp(0.0, 1.0);
+        f[5] = (2.0 * (com_z - c.depth / 2.0).abs() / c.depth).clamp(0.0, 1.0);
+        f
+    }
+
+    pub(crate) fn score(&mut self, inst_idx: usize, orient: usize, x: f64, y: f64, z: f64) -> f64 {
+        if let Some(w) = self.learned() {
+            let f = self.features(inst_idx, orient, x, y, z);
+            return dot(w, &f) + orient_penalty(&self.instances[inst_idx], orient);
+        }
+        self.default_score(inst_idx, orient, x, y, z)
+    }
+
+    /// The hand-tuned score of the fill patterns.
+    pub(crate) fn default_score(&mut self, inst_idx: usize, orient: usize, x: f64, y: f64, z: f64) -> f64 {
         let inst = &self.instances[inst_idx];
         let c = self.spec;
         let shape = &inst.shapes[orient];
@@ -241,7 +350,14 @@ impl<'a> ContainerState<'a> {
     }
 
     /// Lower bound of `score` for any `y ≥ 0`.
-    fn score_lower_bound(&self, inst: &Instance, orient: usize, x: f64, z: f64) -> f64 {
+    pub(crate) fn score_lower_bound(&self, inst_idx: usize, orient: usize, x: f64, z: f64) -> f64 {
+        let inst = &self.instances[inst_idx];
+        if let Some(w) = self.learned() {
+            // Every feature lies in [0, 1]: an unknown one adds at least min(0, w).
+            let f = self.known_features(inst_idx, orient, x, z);
+            let bound: f64 = (0..NF).map(|k| if KNOWN_BEFORE_Y[k] { w[k] * f[k] } else { w[k].min(0.0) }).sum();
+            return bound + orient_penalty(inst, orient);
+        }
         let c = self.spec;
         let nz = self.depth_term(inst, z, inst.shapes[orient].extents[2]);
         let [wx, _, wz] = self.opts.bias.weights();
@@ -401,9 +517,13 @@ impl<'a> ContainerState<'a> {
     }
 
     /// Places a unit at a given pose if it passes the same static checks as a
-    /// searched position (tipping in transport is not judged again).
+    /// searched position. Like the search, it records whether the unit (or
+    /// the column under it) may tip in transport: later units are then judged
+    /// exactly as the placer judged them.
     pub fn place_at(&mut self, inst_idx: usize, orient: usize, min: [f64; 3]) -> bool {
-        match self.check(inst_idx, orient, min, false) {
+        let strict = self.tip_constrained();
+        let commit = if strict { self.check(inst_idx, orient, min, true) } else { None };
+        match commit.or_else(|| self.check(inst_idx, orient, min, false)) {
             Some(c) => {
                 self.commit(c);
                 true
@@ -412,17 +532,14 @@ impl<'a> ContainerState<'a> {
         }
     }
 
-    /// One search over all candidates; `strict` rejects tipping positions.
-    fn place_pass(&mut self, inst_idx: usize, strict: bool) -> bool {
+    /// Floor positions (orientation, x, z) the placer considers for a unit:
+    /// every anchor with the unit on each side of it, inside the container
+    /// and, in orientations that pass the door, without duplicates.
+    pub fn candidates(&self, inst_idx: usize) -> Vec<(usize, f64, f64)> {
         let inst = &self.instances[inst_idx];
-        if let Some(max) = self.spec.max_payload {
-            if self.mass + inst.mass > max + 1e-9 {
-                return false;
-            }
-        }
         let (cw, ch, cd) = (self.spec.width, self.spec.height, self.spec.depth);
-        let mut heap = BinaryHeap::new();
         let mut seen = HashSet::new();
+        let mut out = Vec::new();
         for (oi, shape) in inst.shapes.iter().enumerate() {
             let [w, h, d] = shape.extents;
             if w > cw + tol::BOUNDS || h > ch + tol::BOUNDS || d > cd + tol::BOUNDS || !passes_door(self.spec, shape) {
@@ -434,13 +551,76 @@ impl<'a> ContainerState<'a> {
                         continue;
                     }
                     let (x, z) = (x.clamp(0.0, (cw - w).max(0.0)), z.clamp(0.0, (cd - d).max(0.0)));
-                    if !seen.insert((oi, key(x), key(z))) {
-                        continue;
+                    if seen.insert((oi, key(x), key(z))) {
+                        out.push((oi, x, z));
                     }
-                    let lb = self.score_lower_bound(inst, oi, x, z);
-                    heap.push(Candidate { key: lb, orient: oi, x, z, y: None });
                 }
             }
+        }
+        out
+    }
+
+    /// Resting height of a unit at a floor position, if it can stand there:
+    /// inside the height, not on a fragile unit, on the floor if it must be.
+    pub(crate) fn rest_height(&mut self, inst_idx: usize, orient: usize, x: f64, z: f64) -> Option<f64> {
+        let inst = &self.instances[inst_idx];
+        let shape = &inst.shapes[orient];
+        let (y, on_fragile) = self.drop_y(shape, x, z);
+        let fits = !on_fragile && y + shape.extents[1] <= self.spec.height + tol::BOUNDS && !(inst.floor_only && y > tol::CONTACT);
+        fits.then_some(y)
+    }
+
+    /// Whether the placer would accept this pose in its first pass: the
+    /// static checks and, with `avoid_tipping`, no tipping in transport.
+    pub(crate) fn feasible(&mut self, inst_idx: usize, orient: usize, min: [f64; 3]) -> bool {
+        let strict = self.tip_constrained();
+        self.check(inst_idx, orient, min, strict).is_some()
+    }
+
+    /// Places a unit at a given pose even if it fails the static checks (a
+    /// hand-placed unit). Its weight is passed on where possible; nothing may
+    /// be stacked on it afterwards.
+    pub fn force_place(&mut self, inst_idx: usize, orient: usize, min: [f64; 3]) {
+        if self.place_at(inst_idx, orient, min) {
+            return;
+        }
+        let body = Body::new(&self.instances[inst_idx].shapes[orient], min);
+        let mx = body.max();
+        let ids = self.neighbours(min[0] - tol::CONTACT, min[2] - tol::CONTACT, mx[0] + tol::CONTACT, mx[2] + tol::CONTACT);
+        let info = compute_supports(&body, ids.iter().map(|&j| (j, self.body(j))));
+        let required = scene::required_margin(&body, self.opts.stability_margin);
+        self.commit(Commit {
+            body: PlacedBody {
+                inst: inst_idx,
+                orient,
+                min,
+                supports: info.set,
+                roll: Roll::NotApplicable,
+                required_margin: required,
+                incoming: [0.0; 3],
+                incoming_y: 0.0,
+                outgoing: Vec::new(),
+                margin: 0.0,
+                may_tip: true,
+                forced: true,
+            },
+            updates: Vec::new(),
+        });
+    }
+
+    /// One search over all candidates; `strict` rejects tipping positions.
+    fn place_pass(&mut self, inst_idx: usize, strict: bool) -> bool {
+        let inst = &self.instances[inst_idx];
+        if let Some(max) = self.spec.max_payload {
+            if self.mass + inst.mass > max + 1e-9 {
+                return false;
+            }
+        }
+        let ch = self.spec.height;
+        let mut heap = BinaryHeap::new();
+        for (oi, x, z) in self.candidates(inst_idx) {
+            let lb = self.score_lower_bound(inst_idx, oi, x, z);
+            heap.push(Candidate { key: lb, orient: oi, x, z, y: None });
         }
         let mut checks = 0;
         while let Some(c) = heap.pop() {
@@ -485,10 +665,11 @@ impl<'a> ContainerState<'a> {
         if info.set.is_empty() {
             return None;
         }
-        // Nothing may stand on a zero-capacity (fragile) item.
+        // Nothing may stand on a zero-capacity (fragile) item, or on a unit
+        // forced into a position that fails the checks.
         for owner in &info.set.owners {
             if let Support::Item(j) = owner {
-                if self.instances[self.placed[*j].inst].capacity <= 0.0 {
+                if self.instances[self.placed[*j].inst].capacity <= 0.0 || self.placed[*j].forced {
                     return None;
                 }
             }
@@ -609,6 +790,7 @@ impl<'a> ContainerState<'a> {
                 outgoing,
                 margin,
                 may_tip,
+                forced: false,
             },
             updates,
         })
@@ -632,6 +814,7 @@ impl<'a> ContainerState<'a> {
         self.grid.insert(id as u32, x0, z0, x1, z1);
         self.mass += inst.mass;
         self.moment_x += inst.mass * (b.min[0] + shape.com_from_min[0]);
+        self.moment_z += inst.mass * (b.min[2] + shape.com_from_min[2]);
         self.placed.push(b);
         let (cw, cd) = (self.spec.width, self.spec.depth);
         for p in [

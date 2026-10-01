@@ -4,6 +4,47 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.6.0] - 2026-10-02
+
+### Added
+- **Manual placement mode** (Auto | Manual in the toolbar).
+  - Pick a unit and an allowed orientation, then click in the 3D view: the unit drops
+    under gravity. Drag placed units to move them.
+  - Keys: R rotates, the arrows nudge, Delete removes, Ctrl+Z undoes. The selected
+    unit has exact X/Y/Z fields.
+  - A live ghost shows the landing position, green or red with the reason.
+  - Snapping to walls and faces; gravity can be switched off.
+  - Nothing is refused: the plan is checked like an automatic one and every problem
+    is flagged.
+  - **Auto-fill the rest** packs the remaining units around yours
+    (`pack_with_fixed`). Nothing is stacked on a unit that fails the checks.
+- **Saved solutions:** "Save solution…" in both modes keeps the plan with its setup in
+  the app. The **Solutions…** dialog lists, opens, deletes and marks them for
+  training. Only valid plans can be used for training.
+- **Learned placement** (`learn.rs`, [docs/learning.md](docs/learning.md)).
+  - Marked plans are replayed decision by decision against the placer's own
+    candidate positions.
+  - A linear score over 12 placement features is trained with a pairwise loss, in
+    the app, in seconds. It starts from the built-in pattern that explains the
+    decisions best and is never worse than it.
+  - It adds the fill pattern "Learned", which ★ Best also tries.
+  - The decisions export as JSON lines for other models.
+  - CLI: `omnipack train`, `omnipack export-training`, and `--ranker` for `pack` and
+    `optimize`.
+- **Setup panel:**
+  - tabs (Container, Cargo, Strategy, Physics, and Place in manual mode);
+  - foldable sections with one-line summaries, with their open state remembered;
+  - a compact cargo list (click a row for the full card, ⧉ to duplicate, a filter for
+    long lists);
+  - a resizable, wider panel.
+
+### Changed
+- `ContainerState::place_at` records "may tip in transport" exactly like the search.
+  Rebuilt plans (lengthwise centring, training replay) are therefore judged like the
+  original.
+- The optimizer's fill-pattern gene covers the learned pattern when the request has a
+  ranker. Default plans are unchanged: BR1–7 utilization is identical to 0.5.0.
+
 ## [0.5.0] - 2026-10-01
 
 Physics and load balance from the CTU Code, SOLAS, ISO 1496-1, EN 12195-1 and the EU

@@ -6,7 +6,7 @@
     <title>OmniPack</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tab="setup">
+  <body data-tab="setup" data-mode="auto">
     <header class="toolbar">
       <div class="brand">OmniPack</div>
       <div class="group">
@@ -27,6 +27,13 @@
         <button id="cat-save">Save to catalog</button>
         <button id="cat-delete" title="Delete selected catalog entry">Delete</button>
       </div>
+      <div class="group">
+        <button id="solutions" title="Saved plans, training data and the learned placement">Solutions…</button>
+      </div>
+      <div id="mode-switch" class="segmented" title="Auto: the packer places everything. Manual: you place units yourself.">
+        <button data-mode="auto" class="active">Auto</button>
+        <button data-mode="manual">Manual</button>
+      </div>
       <div class="spacer"></div>
       <span id="status" class="status"></span>
       <button id="pack" class="primary">Pack ▶</button>
@@ -34,6 +41,7 @@
 
     <main>
       <aside id="editor" class="panel"></aside>
+      <div id="editor-resize" title="Drag to resize the panel"></div>
 
       <section id="stage">
         <canvas id="canvas"></canvas>
@@ -54,6 +62,7 @@
           <button id="reset-cam" title="Reset camera">⟲</button>
         </div>
         <div id="legend" class="overlay legend"></div>
+        <div id="manual-bar" class="overlay manual-bar"></div>
         <div class="overlay bottom timeline">
           <div class="transport">
             <button id="first" title="Empty container (Home)">⏮</button>
@@ -82,6 +91,10 @@
       <form id="modal-form" class="modal-box">
         <label id="modal-label" for="modal-input"></label>
         <input id="modal-input" type="text" />
+        <div id="modal-check-row" hidden>
+          <label><input id="modal-check" type="checkbox" /> Use for training</label>
+          <p id="modal-check-hint" class="hint"></p>
+        </div>
         <div class="actions">
           <button type="button" id="modal-cancel">Cancel</button>
           <button type="submit" class="primary">OK</button>

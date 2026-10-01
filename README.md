@@ -31,6 +31,8 @@ A second, independent validator re-checks every plan before it is shown.
 
 ![Load balance: a partial load centred in a 40 ft high cube, with the CTU Code checks, VGM and axle loads](docs/images/desktop-balance.png)
 
+![Manual mode: units placed by hand in a 40 ft high cube, one flagged as unstable, and the green ghost of the next drum](docs/images/desktop-manual.png)
+
 ## Download
 
 Get the latest build from the [Releases](../../releases) page:
@@ -93,8 +95,21 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
   - Click legend entries to isolate groups.
   - Step through loading with ⏮ ◀ ▶ ▶| ⏭ (or ← → Home End Space), with a preview of
     the next item and where it goes.
-- **Files:** save and open setups (JSON), a catalog of saved setups, and export of the
-  plan as JSON or a CSV load list.
+- **Manual placement:**
+  - A Manual mode where you place units yourself: click to drop a unit under gravity,
+    drag it to move it, and nudge or rotate it with the keys.
+  - A live green/red ghost shows whether the position passes the checks. Nothing is
+    refused: problems are flagged.
+  - **Auto-fill the rest** packs the remaining units around yours.
+- **Learned placement:**
+  - Save good plans (yours or automatic) and mark them for training.
+  - OmniPack learns your way of loading in seconds, on the device. It adds a
+    **Learned** fill pattern, which ★ Best also tries.
+  - The decisions can be exported as training data for other models.
+- **Setup panel:** tabs (Container, Cargo, Strategy, Physics), foldable sections with
+  summaries, a compact cargo list, and a resizable width.
+- **Files:** save and open setups (JSON), a catalog of saved setups, saved solutions,
+  and export of the plan as JSON or a CSV load list.
 - **Runs offline** on Windows and Android, with the engine built into the app.
 
 ## Documentation
@@ -103,6 +118,7 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 |---|---|
 | [User guide](docs/user-guide.md) | Using the app: setup, strategies, physics options, reading the results |
 | [Physics model](docs/physics-model.md) | Exactly what is checked and how, at rest and in transport |
+| [Learned placement](docs/learning.md) | How OmniPack learns placement from your saved plans, and the training-data format |
 | [Research notes](docs/research/packing-stability.md) | Literature behind the placer, securing model and search, with measured effects |
 | [Conventions](docs/conventions.md) | Axes, units, shapes, orientations, fill patterns, JSON format |
 | [Building](docs/building.md) | Building from source, Windows installers, Android APK, signing |
@@ -136,13 +152,15 @@ See [docs/building.md](docs/building.md) for the installers and the Android APK.
 The Rust/Tauri app started with version 0.2, a complete rewrite of the earlier Python
 prototype. The prototype is kept in the `v0-legacy` tag. Version 0.5 adds the load
 balance, the vehicle axle loads, the floor and door checks, the lashing count and the
-ship-motion sea cases. Next on the list:
+ship-motion sea cases. Version 0.6 adds manual placement, saved solutions and a learned
+placement score. Next on the list:
 
 - **Rigid-body simulation** (Rapier3D) with replay.
 - **More search:** NSGA-II Pareto fronts and block building on top of the current
   BRKGA search.
 - **Arbitrary meshes:** imported items with any shape.
-- **A learned ranking model** that speeds up the search.
+- **A neural ranking model** (ONNX), trained on the exported decisions, to go beyond
+  the learned linear score.
 
 ## License
 

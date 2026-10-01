@@ -8,10 +8,13 @@
 //! omnipack optimize <request.json> [--budget seconds] [--evals count] [-o plan.json]
 //! omnipack bench [instances-per-class] [--optimize seconds]
 //!   (OMNIPACK_WEIGHTS=contact,blocking,dead_gap,flat_top overrides the score weights)
+//! omnipack train <saved-plan.json>... [-o ranker.json]
+//! omnipack export-training <saved-plan.json>... [-o steps.jsonl]
+//! omnipack pack|optimize <request.json> --ranker ranker.json   (use a learned ranker)
 //! ```
 
-use omnipack_core::generate;
-use omnipack_core::{pack, PackRequest, PackResult, SecuringClass};
+use omnipack_core::{generate, learn};
+use omnipack_core::{pack, FillBias, PackRequest, PackResult, Ranker, SavedPlan, SecuringClass};
 use omnipack_opt::{optimize, OptimizeOptions, Score};
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
@@ -21,7 +24,10 @@ fn usage() -> ExitCode {
         "usage:\n  omnipack pack <request.json> [-o plan.json]\n  omnipack gen br <class 1-7> <seed> [-o request.json]\n  \
          omnipack gen mixed <seed> [-o request.json]\n  omnipack thpack <thpackN.txt> <problem> [-o request.json]\n  \
          omnipack optimize <request.json> [--budget seconds] [--evals count] [-o plan.json]
-  \n         omnipack bench [instances-per-class] [--optimize seconds]"
+  \n         omnipack bench [instances-per-class] [--optimize seconds]\n  \
+         omnipack train <saved-plan.json>... [-o ranker.json]\n  \
+         omnipack export-training <saved-plan.json>... [-o steps.jsonl]\n  \
+         (pack and optimize take --ranker ranker.json to use a learned ranker)"
     );
     ExitCode::from(2)
 }
@@ -128,15 +134,68 @@ fn search_options(args: &mut Vec<String>) -> Result<OptimizeOptions, String> {
     Ok(o)
 }
 
+/// Saved plans (the app's solution files), re-checked from their placements.
+fn read_saved(paths: &[String]) -> Result<Vec<(PackRequest, Vec<omnipack_core::ContainerPlan>)>, String> {
+    let mut out = Vec::new();
+    for path in paths {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let mut saved: SavedPlan = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        learn::revalidate(&saved.request, &mut saved.result.containers);
+        if !learn::trainable(&saved.result.containers) {
+            eprintln!("  skipped {path}: the plan has violations");
+            continue;
+        }
+        out.push((saved.request, saved.result.containers));
+    }
+    Ok(out)
+}
+
+/// Reads a request and applies `--ranker`, if given.
+fn read_request(path: &str, ranker: &Option<String>) -> Result<PackRequest, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut req: PackRequest = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+    if let Some(r) = ranker {
+        let text = std::fs::read_to_string(r).map_err(|e| format!("{r}: {e}"))?;
+        req.options.ranker = Some(serde_json::from_str::<Ranker>(&text).map_err(|e| format!("{r}: {e}"))?);
+        req.options.bias = FillBias::Learned;
+    }
+    Ok(req)
+}
+
 fn run(mut args: Vec<String>) -> Result<(), String> {
     let out = take_output(&mut args);
     let bench_budget = take_flag(&mut args, "--optimize");
+    let ranker = take_flag(&mut args, "--ranker");
     let search = search_options(&mut args)?;
     match args.first().map(String::as_str) {
+        Some("train") => {
+            let plans = read_saved(&args[1..])?;
+            let (ranker, report) = learn::train_on(&plans).ok_or("no valid plans with placement decisions to learn from")?;
+            eprintln!(
+                "{} plans, {} decisions, {} pairs: chosen position ranked first {:.0}% → {:.0}%",
+                report.plans,
+                report.steps,
+                report.pairs,
+                report.top1_before * 100.0,
+                report.top1_after * 100.0
+            );
+            write_json(&ranker, out)
+        }
+        Some("export-training") => {
+            let plans = read_saved(&args[1..])?;
+            let steps: Vec<learn::Step> = plans.iter().flat_map(|(req, cs)| cs.iter().flat_map(move |c| learn::examples(req, c))).collect();
+            let text = learn::export_jsonl(&steps);
+            match out {
+                Some(p) => std::fs::write(&p, text).map_err(|e| format!("{p}: {e}")),
+                None => {
+                    println!("{text}");
+                    Ok(())
+                }
+            }
+        }
         Some("optimize") => {
             let path = args.get(1).ok_or("missing request path")?;
-            let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-            let req: PackRequest = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+            let req = read_request(path, &ranker)?;
             let cancel = AtomicBool::new(false);
             let r = optimize(&req, &search, &cancel, &mut |p| eprint!("\r{:?}: {} plans, best {:.2}   ", p.phase, p.evaluated, p.best.value)).map_err(|e| e.to_string())?;
             eprintln!("\n{} plans in {} ms", r.evaluated, r.elapsed_ms);
@@ -151,8 +210,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         Some("pack") => {
             let path = args.get(1).ok_or("missing request path")?;
-            let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-            let req: PackRequest = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+            let req = read_request(path, &ranker)?;
             let res = pack(&req).map_err(|e| e.to_string())?;
             eprintln!("{}", summary(&res));
             if out.is_some() {

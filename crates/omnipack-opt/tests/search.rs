@@ -93,3 +93,16 @@ fn fewer_tipping_units_beat_density() {
     assert!(safe.better_than(&dense) && !dense.better_than(&safe));
 }
 
+#[test]
+fn a_learned_ranker_joins_the_search() {
+    let mut req = generate::br_like(2, 1).unwrap();
+    req.options.max_containers = 1;
+    assert!(!omnipack_opt::biases(&req).contains(&omnipack_core::FillBias::Learned));
+    let weights = omnipack_core::placer::default_weights(&req.options);
+    req.options.ranker = Some(omnipack_core::Ranker { weights, examples: 1, accuracy: 1.0 });
+    assert!(omnipack_opt::biases(&req).contains(&omnipack_core::FillBias::Learned));
+    let a = run(&req, &capped(40));
+    let b = run(&req, &capped(40));
+    assert_eq!(a.solutions[0].score, b.solutions[0].score);
+    assert!(a.solutions.iter().all(|s| s.result.is_valid()));
+}

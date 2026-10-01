@@ -1,7 +1,13 @@
 //! Output model: a load plan and its verification report.
 
 use omnipack_geom::{Orientation, Shape};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// JSON has no infinity: serde_json writes it as `null`. Reads `null` back as +∞
+/// (held round items have an infinite stability margin).
+pub fn f64_or_inf<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.unwrap_or(f64::INFINITY))
+}
 
 pub const PLAN_SCHEMA: &str = "omnipack.plan/1";
 
@@ -23,6 +29,7 @@ pub struct Placement {
     /// Mass resting on this item (everything above, transmitted), kg.
     pub load_on_top: f64,
     /// Distance from the load resultant to the edge of the support polygon, mm.
+    #[serde(deserialize_with = "f64_or_inf")]
     pub support_margin: f64,
     pub stop: u32,
     /// Round item on a line/point support that must be secured with wedges.
@@ -67,6 +74,7 @@ pub struct Impact {
     pub force_kn: f64,
     /// Demand over the unit's own resistance (friction for sliding, base width
     /// for tipping). Above 1 it depends on blocking or lashing.
+    #[serde(deserialize_with = "f64_or_inf")]
     pub ratio: f64,
     pub case: String,
     pub direction: Direction,
@@ -111,6 +119,7 @@ pub struct Metrics {
     /// an item of a later stop, 0..1.
     pub accessibility: f64,
     /// Smallest support margin of any item, mm.
+    #[serde(deserialize_with = "f64_or_inf")]
     pub min_support_margin: f64,
 }
 
@@ -284,4 +293,25 @@ impl PackResult {
     pub fn is_valid(&self) -> bool {
         self.containers.iter().all(|c| c.violations.is_empty())
     }
+}
+
+/// A plan the user saved together with its setup (the app's "Solutions").
+/// Flagged ones (`train`) teach the learned ranker, if they are valid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedPlan {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// Seconds since the Unix epoch.
+    #[serde(default)]
+    pub created: u64,
+    /// How it was made: "auto", "best", "manual" or "manual+auto".
+    #[serde(default)]
+    pub source: String,
+    /// Use it to train the learned ranker.
+    #[serde(default)]
+    pub train: bool,
+    pub request: crate::model::PackRequest,
+    pub result: PackResult,
 }

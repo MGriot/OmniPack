@@ -47,6 +47,7 @@ Each bias is a strict priority of the three axes (normalised positions):
 | `longitudinal` | x ≫ y ≫ z | vertical walls along the length, left to right |
 | `lateral` | y ≫ x ≫ z | floor layers, rows along the length from the left |
 | `corner_first` | x + y + z | grows out of the back-left-bottom corner |
+| `learned` | trained weights | scores positions with `options.ranker` (see [learning.md](learning.md)); without a ranker, like `wall_building` |
 
 `balance_weight` (0..1) adds a penalty for moving the load's centre of gravity
 off the centreline. Items with `zone: front` prefer the door, `back` the far wall.
@@ -87,6 +88,19 @@ prefers plans with fewer such units over denser ones.
 - `options.physics.lashing`: `capacity_dan`, `anchor_dan`, `vertical_angle`,
   `horizontal_angle` for the lashing count in each transport issue (`lashings`).
 - `Placement.floor_pressure` (kg/m²; 0 = not on the floor).
+
+## Manual plans and saved solutions
+- A hand-made plan is a list of placements in one container. It is checked like any
+  plan, but never refused. Its loading order is the order the units were placed in,
+  unless loading them lowest first gives fewer violations.
+- `pack_with_fixed(request, fixed)` packs the remaining units around fixed placements.
+  The fixed placements keep their positions.
+- A saved solution (`SavedPlan`, the app's `solutions/<id>.json`) is
+  `{ id, name, created, source, train, request, result }`. `source` is `auto`, `best`,
+  `manual` or `manual+auto`; `train` marks it for learning. Infinite margins are
+  written as `null` and read back as infinity.
+- `options.ranker` is `{ weights: [12 numbers], examples, accuracy }`. The weights are
+  in the feature order of [learning.md](learning.md).
 
 ## JSON
 Request: `PackRequest { container, items, options }` (see

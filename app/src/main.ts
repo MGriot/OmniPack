@@ -20,7 +20,14 @@ import {
   type ItemSpec,
   type ItemPreview,
   type LoadPriority,
+  type ManualView,
+  type ModelFile,
   type Objective,
+  type Orientation,
+  type Pose,
+  type Probe,
+  type SavedPlan,
+  type SolutionMeta,
   type OptimizeResult,
   type PackRequest,
   type PackResult,
@@ -41,7 +48,7 @@ import {
   type Zone,
 } from "./types";
 import { previewCanvas, prunePreviews } from "./preview";
-import { PlanViewer, type BalanceGuides } from "./viewer";
+import { PlanViewer, type BalanceGuides, type Hit, type Interaction } from "./viewer";
 
 // ---------- state ----------
 
@@ -63,6 +70,32 @@ const search = loadSearchSettings();
 let searchResult: OptimizeResult | null = null;
 let searchPick = 0;
 let searching = false;
+
+/** Auto: the packer places everything. Manual: the user places units by hand. */
+type Mode = "auto" | "manual";
+let mode: Mode = "auto";
+/** The automatic plan (and its search), kept while the manual one is shown. */
+let autoResult: PackResult | null = null;
+let autoSearch: OptimizeResult | null = null;
+let autoStale = false;
+/** The learned ranker, if one has been trained (see the Solutions dialog). */
+let model: ModelFile | null = null;
+
+/** The hand-made plan; the engine keeps the same list in its manual session. */
+const manual = {
+  started: false,
+  placements: [] as Placement[],
+  /** Earlier placement lists, for undo. */
+  history: [] as Placement[][],
+  remaining: [] as [string, number][],
+  /** Item armed for placing, its allowed poses and the chosen one. */
+  item: null as string | null,
+  poses: [] as Pose[],
+  pose: 0,
+  gravity: true,
+  magnet: true,
+  source: "manual",
+};
 
 function loadSearchSettings(): { enabled: boolean; budget: number; securing: number } {
   const fallback = { enabled: false, budget: /Android/i.test(navigator.userAgent) ? 8 : 15, securing: 0.35 };
@@ -125,10 +158,24 @@ function h(tag: string, attrs: Attrs = {}, ...children: (Node | string | null | 
 }
 
 function changed() {
+  if (mode === "manual" && manual.started) {
+    // The hand-made plan is re-checked against the new setup right away.
+    autoStale = autoResult !== null;
+    clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(() => manualCall("manual_set", { request: withModel(), placements: manual.placements }, false), 250);
+    return;
+  }
   if (result) {
     stale = true;
     renderResults();
   }
+}
+
+let refreshTimer = 0;
+
+/** The request with the learned ranker attached (used by the "learned" fill pattern). */
+function withModel(): PackRequest {
+  return { ...req, options: { ...req.options, ranker: model?.ranker ?? null } };
 }
 
 /** Numeric input bound to a getter/setter. `nullable`: empty = null. */
@@ -388,178 +435,290 @@ function renderLegend() {
 
 // ---------- editor ----------
 
+type EditorTab = "container" | "cargo" | "strategy" | "physics" | "place";
+
+/** Remembered layout of the setup panel (this browser only). */
+const ui = loadUi();
+
+function loadUi(): { tab: EditorTab; open: Record<string, boolean>; width: number; item: string | null } {
+  const fallback = { tab: "container" as EditorTab, open: {} as Record<string, boolean>, width: 380, item: null as string | null };
+  try {
+    return { ...fallback, ...JSON.parse(localStorage.getItem("omnipack.ui") ?? "{}") };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveUi() {
+  try {
+    localStorage.setItem("omnipack.ui", JSON.stringify(ui));
+  } catch {
+    // Storage may be unavailable (private mode); the layout just isn't remembered.
+  }
+}
+
+/** A foldable group with a one-line summary; its open state is remembered. */
+function section(key: string, title: string, summary: string, openByDefault: boolean, ...children: (Node | string | null | undefined)[]): HTMLElement {
+  const d = h("details", { class: "section" }, h("summary", {}, h("b", {}, title), h("span", { class: "sum" }, summary)), ...children) as HTMLDetailsElement;
+  d.open = ui.open[key] ?? openByDefault;
+  d.addEventListener("toggle", () => {
+    ui.open[key] = d.open;
+    saveUi();
+  });
+  return d;
+}
+
 function renderEditor() {
-  const c = req.container;
-  const o = req.options;
-  const ph = o.physics;
-  const ed = $("editor");
-  ed.replaceChildren(
-    h("h3", {}, "Container"),
-    containerPresetSelect(),
+  const units = req.items.reduce((s, i) => s + i.quantity, 0);
+  const tabs: [EditorTab, string][] = [["container", "Container"], ["cargo", `Cargo (${units})`], ["strategy", "Strategy"], ["physics", "Physics"]];
+  if (mode === "manual") tabs.push(["place", "Place"]);
+  if (!tabs.some(([k]) => k === ui.tab)) ui.tab = mode === "manual" ? "place" : "container";
+  const body = { container: containerTab, cargo: cargoTab, strategy: strategyTab, physics: physicsTab, place: placeTab }[ui.tab]();
+  $("editor").replaceChildren(
     h(
-      "div",
-      { class: "grid" },
-      text("Name", () => c.id, (v) => (c.id = v || "container")),
-      num("Max payload kg", () => c.max_payload, (v) => (c.max_payload = v), { nullable: true, placeholder: "∞" }),
-      num("Max CoG offset mm", () => c.cog_limits.max_lateral_offset, (v) => (c.cog_limits.max_lateral_offset = v), { nullable: true, placeholder: "—" }),
-      num("Width mm (X)", () => c.width, (v) => (c.width = Math.max(1, v ?? 1)), { min: 1 }),
-      num("Height mm (Y)", () => c.height, (v) => (c.height = Math.max(1, v ?? 1)), { min: 1 }),
-      num("Depth mm (Z)", () => c.depth, (v) => (c.depth = Math.max(1, v ?? 1)), { min: 1 }),
-      num("Door width mm", () => c.door?.[0] ?? null, (v) => setDoor(0, v), { nullable: true, min: 1, placeholder: "no limit" }),
-      num("Door height mm", () => c.door?.[1] ?? null, (v) => setDoor(1, v), { nullable: true, min: 1, placeholder: "no limit" }),
-      num("Tare kg (for VGM)", () => c.tare_mass, (v) => (c.tare_mass = v === null ? null : Math.max(0, v)), { nullable: true, min: 0, placeholder: "—" }),
-      num("Floor rating kg/m²", () => c.floor_rating, (v) => (c.floor_rating = v === null ? null : Math.max(1, v)), { nullable: true, min: 1, placeholder: "—" }),
-    ),
-    h("p", { class: "hint" }, "The door is at the far end of the depth axis (orange outline); the front wall is at depth 0. Units must pass the door opening standing as loaded."),
-    vehicleEditor(),
-
-    h("h3", {}, "Loading strategy"),
-    h(
-      "div",
-      { class: "grid two" },
-      select<StopOrder>(
-        "Unloading order",
-        [
-          ["lifo", "LIFO – last stop loaded first"],
-          ["fifo", "FIFO – first stop loaded first"],
-        ],
-        () => o.stop_order,
-        (v) => (o.stop_order = v),
-      ),
-      select<LoadPriority>(
-        "Within a stop, load",
-        [
-          ["volume", "Largest first"],
-          ["mass", "Heaviest first"],
-          ["base_area", "Largest base first"],
-          ["height", "Tallest first"],
-          ["as_listed", "As listed (grouped)"],
-        ],
-        () => o.priority,
-        (v) => (o.priority = v),
-      ),
-      select<FillBias | "best">(
-        "Fill pattern",
-        [
-          ["best", "★ Best: search all patterns & orders"],
-          ["wall_building", "Walls across width"],
-          ["floor_first", "Floor layers first"],
-          ["longitudinal", "Walls along length"],
-          ["lateral", "Floor rows along length"],
-          ["corner_first", "From a corner"],
-        ],
-        () => (search.enabled ? "best" : o.bias),
-        (v) => {
-          search.enabled = v === "best";
-          if (v !== "best") o.bias = v;
-          saveSearchSettings();
+      "nav",
+      { class: "editor-tabs" },
+      ...tabs.map(([k, label]) =>
+        h("button", { class: k === ui.tab ? "active" : "", onclick: () => {
+          ui.tab = k;
+          saveUi();
           renderEditor();
-        },
+        } }, label),
       ),
-      num("Max containers", () => o.max_containers, (v) => (o.max_containers = Math.max(1, Math.round(v ?? 1))), { min: 1, step: "1" }),
     ),
-    search.enabled
-      ? h(
-          "div",
-          { class: "search-box" },
-          h("p", { class: "hint" }, "Tries every fill pattern and load priority, then evolves loading orders and orientations (genetic search + local search). Every plan gets the full physics check; stops, zones and floor-only rules are kept."),
-          slider("Search time", 5, 120, 5, () => search.budget, (v) => ((search.budget = v), saveSearchSettings()), (v) => `${v.toFixed(0)} s`),
-          slider("Prefer", 0, 1, 0.05, () => search.securing, (v) => ((search.securing = v), saveSearchSettings()), (v) => (v < 0.2 ? "max. density" : v > 0.8 ? "least securing" : "balanced")),
-        )
-      : "",
-    h("p", { class: "hint" }, o.stop_order === "fifo"
-      ? "FIFO fills from the door towards the back, so the units loaded first are unloaded first (side loading / drive-through)."
-      : "LIFO fills from the back wall towards the door; the first stop ends up at the door (rear-door vehicles)."),
-    slider("Stability margin (share of half-footprint)", 0, 0.5, 0.01, () => o.stability_margin, (v) => (o.stability_margin = v)),
-    slider("Minimum support area", 0, 1, 0.05, () => o.min_support_ratio, (v) => (o.min_support_ratio = v), (v) => `${Math.round(v * 100)}%`),
-    slider("Balance (keep CoG centred)", 0, 1, 0.05, () => o.balance_weight, (v) => (o.balance_weight = v)),
-    h(
-      "div",
-      { class: "checks" },
-      check("Allow rotation", () => o.allow_rotation, (v) => (o.allow_rotation = v)),
-      check("CTU Code balance checks", () => o.balance.ctu_checks, (v) => ((o.balance.ctu_checks = v), renderEditor()), "Warn when the cargo's centre of gravity leaves the CTU Code window, too little mass is in the middle half, or the centre of gravity is high"),
-      check("Centre load lengthwise", () => o.balance.centre_lengthwise, (v) => (o.balance.centre_lengthwise = v), "Slide a partial load along the length by the least amount that meets the centre-of-gravity window and the axle limits. The gaps left at the end walls must be braced."),
-    ),
-    o.balance.ctu_checks
-      ? h(
-          "details",
-          { class: "sub" },
-          h("summary", {}, "Balance limits (CTU Code)"),
-          slider("Max CoG offset (share of length / width)", 0.01, 0.2, 0.01, () => o.balance.max_eccentricity, (v) => (o.balance.max_eccentricity = v), (v) => `±${Math.round(v * 100)} %`),
-          slider("Min mass in the middle half (25–75 % of length)", 0, 1, 0.05, () => o.balance.min_central_share, (v) => (o.balance.min_central_share = v), (v) => `${Math.round(v * 100)} %`),
-          slider("Max CoG height (share of height)", 0.2, 1, 0.05, () => o.balance.max_cog_height, (v) => (o.balance.max_cog_height = v), (v) => `${Math.round(v * 100)} %`),
-          h("p", { class: "hint" }, "An evenly filled container has 50 % of its mass in the middle half, so the 60 % rule asks for heavy units towards the middle."),
-        )
-      : "",
+    ...body,
+  );
+  prunePreviews(req.items);
+  renderManualBar();
+}
 
-    h("h3", {}, "Physics & transport"),
-    h("p", { class: "hint" }, "Always checked: gravity support, tipping at rest, stacking loads, payload. Pick the transport legs to check (quasi-static, EN 12195-1 / CTU Code):"),
-    h(
-      "div",
-      { class: "cases" },
-      ...presets.map((pc) => {
-        const on = () => ph.transport.some((t) => t.name === pc.name);
-        return h(
-          "label",
-          { title: `forward ${pc.forward} g, backward ${pc.backward} g, sideways ${pc.sideways} g, vertical ${pc.vertical_min}–${pc.vertical_max} g` },
-          (() => {
-            const cb = h("input", { type: "checkbox" }) as HTMLInputElement;
-            cb.checked = on();
-            cb.addEventListener("change", () => {
-              ph.transport = cb.checked ? [...ph.transport.filter((t) => t.name !== pc.name), pc] : ph.transport.filter((t) => t.name !== pc.name);
-              changed();
-            });
-            return cb;
-          })(),
-          pc.name,
-          h("small", {}, ` ${pc.forward}/${pc.backward}/${pc.sideways} g`),
-        );
-      }),
-      ...ph.transport
-        .filter((t) => !presets.some((pc) => pc.name === t.name))
-        .map((t) =>
-          h(
-            "label",
-            { class: "custom-case", title: `vertical ${t.vertical_min}–${t.vertical_max} g` },
-            h("button", { type: "button", class: "small", title: "Remove this case", onclick: () => {
-              ph.transport = ph.transport.filter((x) => x !== t);
-              renderEditor();
-              changed();
-            } }, "✕"),
-            t.name,
-            h("small", {}, ` ${t.forward}/${t.backward}/${t.sideways} g`),
-          ),
+function containerTab(): (HTMLElement | string)[] {
+  const c = req.container;
+  const preset = containerPresets.find((p) => p.width === c.width && p.height === c.height && p.depth === c.depth);
+  const summary = [
+    preset ? (CONTAINER_LABELS[preset.id] ?? preset.id) : c.id,
+    `${fmt(c.width)} × ${fmt(c.height)} × ${fmt(c.depth)} mm`,
+    c.door ? `door ${fmt(c.door[0])} × ${fmt(c.door[1])}` : "",
+    c.tare_mass != null ? `tare ${fmt(c.tare_mass)} kg` : "",
+  ].filter(Boolean).join(" · ");
+  return [
+    section(
+      "container.box",
+      "Container",
+      summary,
+      true,
+      containerPresetSelect(),
+      h(
+        "div",
+        { class: "grid" },
+        text("Name", () => c.id, (v) => (c.id = v || "container")),
+        num("Max payload kg", () => c.max_payload, (v) => (c.max_payload = v), { nullable: true, placeholder: "∞" }),
+        num("Max CoG offset mm", () => c.cog_limits.max_lateral_offset, (v) => (c.cog_limits.max_lateral_offset = v), { nullable: true, placeholder: "—" }),
+        num("Width mm (X)", () => c.width, (v) => (c.width = Math.max(1, v ?? 1)), { min: 1 }),
+        num("Height mm (Y)", () => c.height, (v) => (c.height = Math.max(1, v ?? 1)), { min: 1 }),
+        num("Depth mm (Z)", () => c.depth, (v) => (c.depth = Math.max(1, v ?? 1)), { min: 1 }),
+        num("Door width mm", () => c.door?.[0] ?? null, (v) => setDoor(0, v), { nullable: true, min: 1, placeholder: "no limit" }),
+        num("Door height mm", () => c.door?.[1] ?? null, (v) => setDoor(1, v), { nullable: true, min: 1, placeholder: "no limit" }),
+        num("Tare kg (for VGM)", () => c.tare_mass, (v) => (c.tare_mass = v === null ? null : Math.max(0, v)), { nullable: true, min: 0, placeholder: "—" }),
+        num("Floor rating kg/m²", () => c.floor_rating, (v) => (c.floor_rating = v === null ? null : Math.max(1, v)), { nullable: true, min: 1, placeholder: "—" }),
+      ),
+      h("p", { class: "hint" }, "The door is at the far end of the depth axis (orange outline); the front wall is at depth 0. Units must pass the door opening standing as loaded."),
+    ),
+    section("container.vehicle", "Road vehicle", c.vehicle?.name ?? "none", false, vehicleEditor()),
+  ];
+}
+
+const PATTERNS: [FillBias | "best", string][] = [
+  ["best", "★ Best: search all patterns & orders"],
+  ["wall_building", "Walls across width"],
+  ["floor_first", "Floor layers first"],
+  ["longitudinal", "Walls along length"],
+  ["lateral", "Floor rows along length"],
+  ["corner_first", "From a corner"],
+];
+
+const PRIORITIES: [LoadPriority, string][] = [
+  ["volume", "Largest first"],
+  ["mass", "Heaviest first"],
+  ["base_area", "Largest base first"],
+  ["height", "Tallest first"],
+  ["as_listed", "As listed (grouped)"],
+];
+
+function strategyTab(): (HTMLElement | string)[] {
+  const o = req.options;
+  const patterns: [FillBias | "best", string][] = model ? [...PATTERNS, ["learned", "Learned (from your saved plans)"]] : PATTERNS;
+  const pattern = search.enabled ? "★ Best" : (patterns.find(([k]) => k === o.bias)?.[1] ?? o.bias);
+  const b = o.balance;
+  return [
+    section(
+      "strategy.order",
+      "Order & pattern",
+      `${pattern} · ${o.stop_order.toUpperCase()} · ${PRIORITIES.find(([k]) => k === o.priority)?.[1] ?? o.priority}`,
+      true,
+      h(
+        "div",
+        { class: "grid two" },
+        select<StopOrder>("Unloading order", [["lifo", "LIFO – last stop loaded first"], ["fifo", "FIFO – first stop loaded first"]], () => o.stop_order, (v) => (o.stop_order = v)),
+        select<LoadPriority>("Within a stop, load", PRIORITIES, () => o.priority, (v) => (o.priority = v)),
+        select<FillBias | "best">(
+          "Fill pattern",
+          patterns,
+          () => (search.enabled ? "best" : o.bias),
+          (v) => {
+            search.enabled = v === "best";
+            if (v !== "best") o.bias = v;
+            saveSearchSettings();
+            renderEditor();
+          },
         ),
+        num("Max containers", () => o.max_containers, (v) => (o.max_containers = Math.max(1, Math.round(v ?? 1))), { min: 1, step: "1" }),
+      ),
+      search.enabled
+        ? h(
+            "div",
+            { class: "search-box" },
+            h("p", { class: "hint" }, `Tries every fill pattern${model ? " (including your learned one)" : ""} and load priority, then evolves loading orders and orientations (genetic search + local search). Every plan gets the full physics check; stops, zones and floor-only rules are kept.`),
+            slider("Search time", 5, 120, 5, () => search.budget, (v) => ((search.budget = v), saveSearchSettings()), (v) => `${v.toFixed(0)} s`),
+            slider("Prefer", 0, 1, 0.05, () => search.securing, (v) => ((search.securing = v), saveSearchSettings()), (v) => (v < 0.2 ? "max. density" : v > 0.8 ? "least securing" : "balanced")),
+          )
+        : "",
+      o.bias === "learned" && !search.enabled
+        ? h("p", { class: "hint" }, model ? `Scores positions with the weights learned from ${model.report.steps} decisions in your saved plans.` : "No model trained yet: packs like “Walls across width”.")
+        : "",
+      h("p", { class: "hint" }, o.stop_order === "fifo"
+        ? "FIFO fills from the door towards the back, so the units loaded first are unloaded first (side loading / drive-through)."
+        : "LIFO fills from the back wall towards the door; the first stop ends up at the door (rear-door vehicles)."),
     ),
-    shipMotionEditor(),
-    h(
-      "div",
-      { class: "checks" },
-      check("Sliding", () => ph.check_sliding, (v) => (ph.check_sliding = v), "Friction vs acceleration, unless blocked by walls or neighbours"),
-      check("Tipping", () => ph.check_tipping, (v) => (ph.check_tipping = v), "Tipping moment vs restoring moment, unless blocked above the CoG"),
-      check("Avoid tipping", () => ph.avoid_tipping, (v) => (ph.avoid_tipping = v), "Never place a unit where it would tip in transport (e.g. lay slender items down). A unit with no other way to fit is still loaded and flagged for lashing."),
-      check("Dynamic stacking", () => ph.dynamic_stacking, (v) => (ph.dynamic_stacking = v), "Multiply loads on top by the vertical factor"),
-      check("Chocks for round items", () => ph.use_chocks, (v) => (ph.use_chocks = v), "Lying drums and balls are held by wedges; off = they must be wedged in by neighbours"),
-      check("Load end secured", () => ph.secure_load_end, (v) => (ph.secure_load_end = v), "A locking bar / gate / dunnage closes the open end of the load"),
-      check("Anti-slip mats", () => ph.anti_slip_mats, (v) => (ph.anti_slip_mats = v), `Rubber mats under every item and between layers: μ ≥ ${ANTI_SLIP_FRICTION}`),
+    section(
+      "strategy.stability",
+      "Stability",
+      `margin ${o.stability_margin.toFixed(2)} · support ${Math.round(o.min_support_ratio * 100)} % · balance ${o.balance_weight.toFixed(2)}${o.allow_rotation ? "" : " · no rotation"}`,
+      false,
+      slider("Stability margin (share of half-footprint)", 0, 0.5, 0.01, () => o.stability_margin, (v) => (o.stability_margin = v)),
+      slider("Minimum support area", 0, 1, 0.05, () => o.min_support_ratio, (v) => (o.min_support_ratio = v), (v) => `${Math.round(v * 100)}%`),
+      slider("Balance (keep CoG centred)", 0, 1, 0.05, () => o.balance_weight, (v) => (o.balance_weight = v)),
+      h("div", { class: "checks" }, check("Allow rotation", () => o.allow_rotation, (v) => (o.allow_rotation = v))),
     ),
-    (() => {
-      const sel = h("select", {}, h("option", { value: "" }, "Custom"), ...FRICTION_PRESETS.map(([name, mu]) => h("option", { value: String(mu) }, `${name} (μ ${mu})`))) as HTMLSelectElement;
-      sel.value = FRICTION_PRESETS.some(([, mu]) => mu === ph.default_friction) ? String(ph.default_friction) : "";
-      sel.addEventListener("change", () => {
-        if (!sel.value) return;
-        ph.default_friction = Number(sel.value);
-        renderEditor();
-        changed();
-      });
-      return h("label", { class: "field", title: "Typical dry values from EN 12195-1 Annex B; check them for your load" }, h("span", {}, "Cargo on floor"), sel);
-    })(),
-    slider("Default friction μ", 0.1, 0.8, 0.05, () => ph.default_friction, (v) => (ph.default_friction = v)),
-    slider("Dunnage fills gaps up to", 0, 200, 5, () => ph.max_fill_gap, (v) => (ph.max_fill_gap = v), (v) => `${v.toFixed(0)} mm`),
-    h(
-      "details",
-      { class: "sub" },
-      h("summary", {}, "Direct lashing (EN 12195-1)"),
+    section(
+      "strategy.balance",
+      "Load balance (CTU Code)",
+      `${b.ctu_checks ? `±${Math.round(b.max_eccentricity * 100)} % · ${Math.round(b.min_central_share * 100)} % middle · CoG ≤ ${Math.round(b.max_cog_height * 100)} % H` : "checks off"}${b.centre_lengthwise ? " · centring on" : ""}`,
+      false,
+      h(
+        "div",
+        { class: "checks" },
+        check("CTU Code balance checks", () => b.ctu_checks, (v) => ((b.ctu_checks = v), renderEditor()), "Warn when the cargo's centre of gravity leaves the CTU Code window, too little mass is in the middle half, or the centre of gravity is high"),
+        check("Centre load lengthwise", () => b.centre_lengthwise, (v) => (b.centre_lengthwise = v), "Slide a partial load along the length by the least amount that meets the centre-of-gravity window and the axle limits. The gaps left at the end walls must be braced."),
+      ),
+      b.ctu_checks ? slider("Max CoG offset (share of length / width)", 0.01, 0.2, 0.01, () => b.max_eccentricity, (v) => (b.max_eccentricity = v), (v) => `±${Math.round(v * 100)} %`) : "",
+      b.ctu_checks ? slider("Min mass in the middle half (25–75 % of length)", 0, 1, 0.05, () => b.min_central_share, (v) => (b.min_central_share = v), (v) => `${Math.round(v * 100)} %`) : "",
+      b.ctu_checks ? slider("Max CoG height (share of height)", 0.2, 1, 0.05, () => b.max_cog_height, (v) => (b.max_cog_height = v), (v) => `${Math.round(v * 100)} %`) : "",
+      b.ctu_checks ? h("p", { class: "hint" }, "An evenly filled container has 50 % of its mass in the middle half, so the 60 % rule asks for heavy units towards the middle.") : "",
+    ),
+  ];
+}
+
+function physicsTab(): (HTMLElement | string)[] {
+  const ph = req.options.physics;
+  const legs = ph.transport.map((t) => t.name.split(" (")[0]).join(" + ") || "none (static only)";
+  const checks = [
+    ph.check_sliding && "sliding",
+    ph.check_tipping && "tipping",
+    ph.avoid_tipping && "avoid tipping",
+    ph.dynamic_stacking && "dynamic stacking",
+    ph.use_chocks && "chocks",
+    ph.secure_load_end && "load end secured",
+    ph.anti_slip_mats && "anti-slip mats",
+  ].filter(Boolean).join(", ");
+  return [
+    section(
+      "physics.cases",
+      "Transport legs",
+      legs,
+      true,
+      h("p", { class: "hint" }, "Always checked: gravity support, tipping at rest, stacking loads, payload. Pick the transport legs to check (quasi-static, EN 12195-1 / CTU Code):"),
+      h(
+        "div",
+        { class: "cases" },
+        ...presets.map((pc) => {
+          const on = () => ph.transport.some((t) => t.name === pc.name);
+          return h(
+            "label",
+            { title: `forward ${pc.forward} g, backward ${pc.backward} g, sideways ${pc.sideways} g, vertical ${pc.vertical_min}–${pc.vertical_max} g` },
+            (() => {
+              const cb = h("input", { type: "checkbox" }) as HTMLInputElement;
+              cb.checked = on();
+              cb.addEventListener("change", () => {
+                ph.transport = cb.checked ? [...ph.transport.filter((t) => t.name !== pc.name), pc] : ph.transport.filter((t) => t.name !== pc.name);
+                renderEditor();
+                changed();
+              });
+              return cb;
+            })(),
+            pc.name,
+            h("small", {}, ` ${pc.forward}/${pc.backward}/${pc.sideways} g`),
+          );
+        }),
+        ...ph.transport
+          .filter((t) => !presets.some((pc) => pc.name === t.name))
+          .map((t) =>
+            h(
+              "label",
+              { class: "custom-case", title: `vertical ${t.vertical_min}–${t.vertical_max} g` },
+              h("button", { type: "button", class: "small", title: "Remove this case", onclick: () => {
+                ph.transport = ph.transport.filter((x) => x !== t);
+                renderEditor();
+                changed();
+              } }, "✕"),
+              t.name,
+              h("small", {}, ` ${t.forward}/${t.backward}/${t.sideways} g`),
+            ),
+          ),
+      ),
+    ),
+    section("physics.ship", "Sea case from ship motion", "roll & pitch → accelerations", false, shipMotionEditor()),
+    section(
+      "physics.checks",
+      "Checks",
+      checks || "none",
+      false,
+      h(
+        "div",
+        { class: "checks" },
+        check("Sliding", () => ph.check_sliding, (v) => (ph.check_sliding = v), "Friction vs acceleration, unless blocked by walls or neighbours"),
+        check("Tipping", () => ph.check_tipping, (v) => (ph.check_tipping = v), "Tipping moment vs restoring moment, unless blocked above the CoG"),
+        check("Avoid tipping", () => ph.avoid_tipping, (v) => (ph.avoid_tipping = v), "Never place a unit where it would tip in transport (e.g. lay slender items down). A unit with no other way to fit is still loaded and flagged for lashing."),
+        check("Dynamic stacking", () => ph.dynamic_stacking, (v) => (ph.dynamic_stacking = v), "Multiply loads on top by the vertical factor"),
+        check("Chocks for round items", () => ph.use_chocks, (v) => (ph.use_chocks = v), "Lying drums and balls are held by wedges; off = they must be wedged in by neighbours"),
+        check("Load end secured", () => ph.secure_load_end, (v) => (ph.secure_load_end = v), "A locking bar / gate / dunnage closes the open end of the load"),
+        check("Anti-slip mats", () => ph.anti_slip_mats, (v) => (ph.anti_slip_mats = v), `Rubber mats under every item and between layers: μ ≥ ${ANTI_SLIP_FRICTION}`),
+      ),
+    ),
+    section(
+      "physics.friction",
+      "Friction & dunnage",
+      `μ ${ph.default_friction.toFixed(2)} · dunnage up to ${fmt(ph.max_fill_gap)} mm`,
+      false,
+      (() => {
+        const sel = h("select", {}, h("option", { value: "" }, "Custom"), ...FRICTION_PRESETS.map(([name, mu]) => h("option", { value: String(mu) }, `${name} (μ ${mu})`))) as HTMLSelectElement;
+        sel.value = FRICTION_PRESETS.some(([, mu]) => mu === ph.default_friction) ? String(ph.default_friction) : "";
+        sel.addEventListener("change", () => {
+          if (!sel.value) return;
+          ph.default_friction = Number(sel.value);
+          renderEditor();
+          changed();
+        });
+        return h("label", { class: "field", title: "Typical dry values from EN 12195-1 Annex B; check them for your load" }, h("span", {}, "Cargo on floor"), sel);
+      })(),
+      slider("Default friction μ", 0.1, 0.8, 0.05, () => ph.default_friction, (v) => (ph.default_friction = v)),
+      slider("Dunnage fills gaps up to", 0, 200, 5, () => ph.max_fill_gap, (v) => (ph.max_fill_gap = v), (v) => `${v.toFixed(0)} mm`),
+    ),
+    section(
+      "physics.lashing",
+      "Direct lashing (EN 12195-1)",
+      `LC ${fmt(ph.lashing.capacity_dan)} daN · points ${fmt(ph.lashing.anchor_dan)} daN · α ${fmt(ph.lashing.vertical_angle)}° β ${fmt(ph.lashing.horizontal_angle)}°`,
+      false,
       h(
         "div",
         { class: "grid two" },
@@ -570,31 +729,149 @@ function renderEditor() {
       ),
       h("p", { class: "hint" }, "Each securing force is also given as a number of direct lashings: n·LC ≥ m·g·(c − μ·0.75·c_z) / (μ·0.75·sin α + cos α·cos β). The weaker of strap and lashing point counts (ISO container floor points: 1000 daN)."),
     ),
+  ];
+}
 
+/** Short description of a shape for the cargo list. */
+function shapeSummary(s: Shape): string {
+  switch (s.kind) {
+    case "box":
+      return `box ${fmt(s.w)}×${fmt(s.h)}×${fmt(s.d)}`;
+    case "cylinder":
+      return `drum r${fmt(s.radius)} × ${fmt(s.length)}`;
+    case "sphere":
+      return `ball r${fmt(s.radius)}`;
+    case "cone":
+      return `cone r${fmt(s.radius)} h${fmt(s.height)}`;
+    case "pyramid":
+      return `pyramid ${fmt(s.w)}×${fmt(s.d)} h${fmt(s.height)}`;
+    case "prism":
+      return `${s.sides}-prism r${fmt(s.radius)} × ${fmt(s.length)}`;
+    case "l_profile":
+      return `L ${fmt(s.a)}×${fmt(s.b)}×${fmt(s.thickness)} × ${fmt(s.length)}`;
+  }
+}
+
+function cargoTab(): (HTMLElement | string)[] {
+  const add = h(
+    "select",
+    { title: "Add an item of this shape" },
+    h("option", { value: "" }, "+ Add item…"),
+    ...SHAPE_KINDS.map(([k, t]) => h("option", { value: k }, t)),
+    ...PALLETS.map(([k, t]) => h("option", { value: k }, t)),
+  ) as HTMLSelectElement;
+  add.addEventListener("change", () => {
+    if (add.value.startsWith("pallet:")) addPallet(add.value);
+    else if (add.value) addItem(add.value as ShapeKind);
+    add.value = "";
+  });
+  const list = h("div", { class: "cargo-list" }, ...req.items.map(cargoRow));
+  const filter = h("input", { type: "search", placeholder: "Filter items…" }) as HTMLInputElement;
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    for (const el of list.children) (el as HTMLElement).hidden = !!q && !((el as HTMLElement).dataset.id ?? "").toLowerCase().includes(q);
+  });
+  const mass = req.items.reduce((s, i) => s + i.mass * i.quantity, 0);
+  return [
+    h("div", { class: "cargo-head" }, add, req.items.length > 6 ? filter : h("span", { class: "hint" }, req.items.length ? `${req.items.length} types · ${fmt(mass)} kg` : "")),
+    req.items.length ? list : h("p", { class: "hint" }, "No items yet: add one, or load a sample."),
+  ];
+}
+
+function cargoRow(it: ItemSpec, index: number): HTMLElement {
+  const color = it.color ?? paletteColor(index);
+  const open = ui.item === it.id;
+  const row = h(
+    "div",
+    { class: `cargo-row${open ? " open" : ""}`, style: `border-left-color:${color}` },
     h(
-      "h3",
-      {},
-      `Items (${req.items.reduce((s, i) => s + i.quantity, 0)} units)`,
-      h("span", { class: "spacer" }),
-      (() => {
-        const sel = h(
-          "select",
-          { title: "Add an item of this shape" },
-          h("option", { value: "" }, "+ Add…"),
-          ...SHAPE_KINDS.map(([k, t]) => h("option", { value: k }, t)),
-          ...PALLETS.map(([k, t]) => h("option", { value: k }, t)),
-        ) as HTMLSelectElement;
-        sel.addEventListener("change", () => {
-          if (sel.value.startsWith("pallet:")) addPallet(sel.value);
-          else if (sel.value) addItem(sel.value as ShapeKind);
-          sel.value = "";
-        });
-        return sel;
-      })(),
+      "button",
+      { class: "row-main", title: open ? "Close" : "Edit this item", onclick: () => {
+        ui.item = open ? null : it.id;
+        saveUi();
+        renderEditor();
+      } },
+      h("span", { class: "swatch", style: `background:${color}` }),
+      h("b", {}, it.id),
+      h("span", { class: "muted" }, shapeSummary(it.shape)),
+      h("span", { class: "qty" }, `×${it.quantity}`),
+      h("span", { class: "muted" }, `${fmt(it.mass, 1)} kg`),
     ),
-    ...req.items.map(itemCard),
+    h("button", { class: "small", title: "Duplicate", onclick: () => duplicateItem(index) }, "⧉"),
+    h("button", { class: "small", title: "Remove", onclick: () => {
+      req.items.splice(index, 1);
+      renderEditor();
+      changed();
+    } }, "✕"),
   );
-  prunePreviews(req.items);
+  const wrap = h("div", { class: "cargo-entry" }, row, open ? itemCard(it, index) : null);
+  wrap.dataset.id = it.id;
+  return wrap;
+}
+
+function duplicateItem(index: number) {
+  const copy: ItemSpec = JSON.parse(JSON.stringify(req.items[index]));
+  copy.id = `${copy.id}-copy`;
+  while (req.items.some((i) => i.id === copy.id)) copy.id += "'";
+  req.items.splice(index + 1, 0, copy);
+  ui.item = copy.id;
+  saveUi();
+  renderEditor();
+  changed();
+}
+
+function placeTab(): (HTMLElement | string)[] {
+  const left = new Map(manual.remaining);
+  const quiet = (label: string, get: () => boolean, set: (v: boolean) => void, title: string) => {
+    const cb = h("input", { type: "checkbox" }) as HTMLInputElement;
+    cb.checked = get();
+    cb.addEventListener("change", () => set(cb.checked));
+    return h("label", { title }, cb, label);
+  };
+  return [
+    h("p", { class: "hint" }, "Pick a unit, then click in the 3D view to place it. Drag a placed unit to move it; click one to select it. Keys: R rotates, arrows nudge (Shift ×10), Delete removes, Ctrl+Z undoes, Esc drops the unit you hold."),
+    h(
+      "div",
+      { class: "place-list" },
+      ...req.items.map((it, i) =>
+        h(
+          "button",
+          { class: `place-item${manual.item === it.id ? " active" : ""}`, disabled: (left.get(it.id) ?? 0) <= 0, onclick: () => armItem(it.id) },
+          h("span", { class: "swatch", style: `background:${it.color ?? paletteColor(i)}` }),
+          h("b", {}, it.id),
+          h("span", { class: "muted" }, shapeSummary(it.shape)),
+          h("span", { class: "qty" }, `${left.get(it.id) ?? 0} left`),
+        ),
+      ),
+    ),
+    manual.item && manual.poses.length
+      ? h(
+          "div",
+          { class: "poses" },
+          h("span", { class: "hint" }, "Orientation (W × H × D in the container):"),
+          ...manual.poses.map((p, k) =>
+            h("button", { class: `small${k === manual.pose ? " active" : ""}`, onclick: () => {
+              manual.pose = k;
+              renderEditor();
+            } }, p.extents.map((e) => fmt(e)).join(" × ")),
+          ),
+        )
+      : "",
+    h(
+      "div",
+      { class: "checks" },
+      quiet("Snap down with gravity", () => manual.gravity, (v) => (manual.gravity = v), "Off: units stay at the height you point at or type (they may float; that is flagged)"),
+      quiet("Snap to walls and faces", () => manual.magnet, (v) => (manual.magnet = v), "Within 30 mm of a wall or a unit's face, the unit lines up with it"),
+    ),
+    h(
+      "div",
+      { class: "actions" },
+      h("button", { class: "primary", onclick: manualAutoFill, title: "Pack the units still to place around yours" }, "Auto-fill the rest"),
+      h("button", { onclick: undoManual, disabled: !manual.history.length }, "Undo"),
+      h("button", { onclick: clearManual, disabled: !manual.placements.length }, "Clear"),
+      h("button", { onclick: saveSolution, disabled: !manual.placements.length }, "Save solution…"),
+    ),
+  ];
 }
 
 /** Loaded pallets: footprint per EPAL / ISO, 1 m high, 500 kg, this side up, wood on plywood. */
@@ -613,6 +890,9 @@ function addPallet(key: string) {
   it.upright_only = true;
   it.friction = 0.45;
   req.items.push(it);
+  ui.item = it.id;
+  ui.tab = "cargo";
+  saveUi();
   renderEditor();
   changed();
   setStatus(`Added ${label}: set its height and mass.`);
@@ -683,7 +963,7 @@ function vehicleEditor(): HTMLElement {
   return h(
     "div",
     {},
-    h("label", { class: "field", title: "Axle loads of a tractor + semi-trailer with the container (EU limits: Directive 96/53/EC as amended by 2015/719)" }, h("span", {}, "Road vehicle"), sel),
+    h("label", { class: "field", title: "Axle loads of a tractor + semi-trailer with the container (EU limits: Directive 96/53/EC as amended by 2015/719)" }, h("span", {}, "Vehicle"), sel),
     v
       ? h(
           "details",
@@ -724,9 +1004,8 @@ function shipMotionEditor(): HTMLElement {
   show();
   if (!shipCase) update();
   return h(
-    "details",
-    { class: "sub" },
-    h("summary", {}, "Sea case from ship motion"),
+    "div",
+    {},
     h(
       "div",
       { class: "grid two" },
@@ -757,6 +1036,9 @@ function addItem(kind: ShapeKind) {
   while (req.items.some((i) => i.id === it.id)) it.id += "'";
   it.shape = defaultShape(kind);
   req.items.push(it);
+  ui.item = it.id;
+  ui.tab = "cargo";
+  saveUi();
   renderEditor();
   changed();
 }
@@ -888,6 +1170,7 @@ function currentPlan(): ContainerPlan | null {
 }
 
 const fmt = (v: number, d = 0) => v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function describeViolation(v: Record<string, unknown>): string {
   const { kind, ...rest } = v;
@@ -1024,24 +1307,24 @@ function renderResults() {
   const balance = r.containers.reduce((n, c) => n + balanceWarnings(c), 0);
   const floor = r.containers.reduce((n, c) => n + floorWarnings(c), 0);
   panel.append(
-    h("h3", {}, "Plan", h("span", { class: "spacer" }), stale ? h("span", { class: "badge warn" }, "out of date") : null),
+    h("h3", {}, mode === "manual" ? "Manual plan" : "Plan", h("span", { class: "spacer" }), stale ? h("span", { class: "badge warn" }, "out of date") : null),
     h(
       "div",
       { class: "actions" },
-      h("span", { class: `badge ${valid ? "ok" : "bad"}` }, valid ? "✓ Stable at rest" : "✗ Violations found"),
+      h("span", { class: `badge ${valid ? "ok" : "bad"}` }, valid ? "✓ Stable at rest" : mode === "manual" ? `✗ ${plural(r.containers.reduce((n, c) => n + c.violations.length, 0), "problem")} flagged` : "✗ Violations found"),
       req.options.physics.transport.length
-        ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} units need lashing` : "✓ Secured for transport")
+        ? h("span", { class: `badge ${unsecured ? "warn" : "ok"}` }, unsecured ? `⚠ ${unsecured} unit${unsecured === 1 ? " needs" : "s need"} lashing` : "✓ Secured for transport")
         : null,
       tipping ? h("span", { class: "badge warn", title: "No position without tipping was found for these units: lash them" }, `${tipping} would tip`) : null,
       dunnage ? h("span", { class: "badge" }, `${dunnage} held once gaps are filled`) : null,
       chocks ? h("span", { class: "badge warn" }, `${chocks} need chocks`) : null,
       req.options.balance.ctu_checks || req.container.vehicle
-        ? h("span", { class: `badge ${balance ? "warn" : "ok"}`, title: "CTU Code centre-of-gravity window, middle-half share, CoG height and vehicle axle limits" }, balance ? `⚠ ${balance} balance warnings` : "✓ Balanced")
+        ? h("span", { class: `badge ${balance ? "warn" : "ok"}`, title: "CTU Code centre-of-gravity window, middle-half share, CoG height and vehicle axle limits" }, balance ? `⚠ ${plural(balance, "balance warning")}` : "✓ Balanced")
         : null,
       floor ? h("span", { class: "badge warn", title: "Contact pressure above the floor rating: spread the load with beams" }, `${floor} over floor rating`) : null,
     ),
     searchResult ? searchPicker(searchResult) : "",
-    stat("Units packed", `${r.packed_units} / ${r.requested_units}`),
+    stat(mode === "manual" ? "Units placed" : "Units packed", `${r.packed_units} / ${r.requested_units}`),
     stat("Containers", String(r.containers.length)),
     stat("Volume used", `${fmt(r.volume_utilization * 100, 1)} %`),
     stat("Computed in", `${r.elapsed_ms} ms`),
@@ -1113,6 +1396,7 @@ function renderResults() {
       p.impact ? stat("Transport force", `${fmt(p.impact.force_kn, 2)} kN, ${DIR_LABEL[p.impact.direction]} (${p.impact.case})`) : "",
       p.impact ? stat("Demand / own grip", `${fmt(p.impact.ratio, 2)}×${p.impact.ratio > 1 ? " — relies on blocking or lashing" : ""}`) : "",
       own.length ? h("ul", { class: "issue-list" }, ...own.map((i) => h("li", {}, describeIssue(i)))) : "",
+      mode === "manual" ? selectedEditor(p) : "",
     );
   }
 
@@ -1120,7 +1404,7 @@ function renderResults() {
     const byReason = new Map<string, string[]>();
     for (const u of r.unpacked) byReason.set(u.reason, [...(byReason.get(u.reason) ?? []), u.instance_id]);
     panel.append(
-      h("h3", {}, `Not packed (${r.unpacked.length})`),
+      h("h3", {}, mode === "manual" ? "Not placed yet" : `Not packed (${r.unpacked.length})`),
       h("ul", { class: "list" }, ...[...byReason].map(([reason, ids]) => h("li", {}, `${reason.replace(/_/g, " ")}: ${ids.slice(0, 8).join(", ")}${ids.length > 8 ? ` +${ids.length - 8}` : ""}`))),
     );
   }
@@ -1129,6 +1413,7 @@ function renderResults() {
     h(
       "div",
       { class: "actions" },
+      h("button", { onclick: saveSolution, title: "Keep this plan in Solutions; mark it to train the learned placement" }, "Save solution…"),
       h("button", { onclick: exportPlanJson }, "Export plan (JSON)"),
       h("button", { onclick: exportLoadList }, "Export load list (CSV)"),
     ),
@@ -1270,7 +1555,7 @@ async function runSearch() {
   });
   try {
     const options = { budget_ms: search.budget * 1000, objective: objective(), keep: 3 };
-    const r = await invoke<OptimizeResult>("optimize_request", { request: req, options });
+    const r = await invoke<OptimizeResult>("optimize_request", { request: withModel(), options });
     searchResult = r;
     searchPick = 0;
     result = r.solutions[0].result;
@@ -1304,6 +1589,7 @@ async function runPack() {
     setStatus("Add some items first.", "bad");
     return;
   }
+  if (mode === "manual") return manualAutoFill();
   if (search.enabled) return runSearch();
   searchResult = null;
   const btn = $<HTMLButtonElement>("pack");
@@ -1312,7 +1598,7 @@ async function runPack() {
   stopPlaying();
   setStatus("Packing…");
   try {
-    result = await invoke<PackResult>("pack_request", { request: req });
+    result = await invoke<PackResult>("pack_request", { request: withModel() });
     stale = false;
     current = 0;
     selected = null;
@@ -1346,13 +1632,17 @@ function loadRequest(r: PackRequest) {
     },
   };
   result = null;
-  stale = false;
+  autoResult = null;
+  searchResult = autoSearch = null;
+  stale = autoStale = false;
   selected = null;
   focusKeys.clear();
   stopPlaying();
+  Object.assign(manual, { started: false, placements: [], history: [], remaining: [], item: null, poses: [], pose: 0, source: "manual" });
   renderEditor();
   renderResults();
   showPlan();
+  if (mode === "manual") startManual();
 }
 
 async function loadSample(kind: string) {
@@ -1452,7 +1742,495 @@ function showTab(tab: string) {
   for (const b of document.querySelectorAll<HTMLButtonElement>("#mobile-tabs button[data-tab]")) b.classList.toggle("active", b.dataset.tab === tab);
 }
 
+// ---------- manual placement ----------
+
+/** The hand-made plan as a pack result, so the results panel and viewer show it. */
+function manualResult(view: ManualView): PackResult {
+  const plan = view.plan;
+  return {
+    schema: "omnipack.plan/1",
+    containers: [plan],
+    unpacked: view.remaining.filter(([, n]) => n > 0).map(([id, n]) => ({ instance_id: `${id} ×${n}`, item_id: id, reason: "to_place" })),
+    requested_units: req.items.reduce((s, i) => s + i.quantity, 0),
+    packed_units: plan.placements.length,
+    volume_utilization: plan.metrics.volume_utilization,
+    elapsed_ms: 0,
+  };
+}
+
+async function applyManualView(view: ManualView) {
+  manual.placements = view.plan.placements;
+  manual.remaining = view.remaining;
+  result = manualResult(view);
+  stale = false;
+  current = 0;
+  if (selected) selected = manual.placements.find((p) => p.instance_id === selected!.instance_id) ?? null;
+  viewer.highlight(selected?.instance_id ?? null);
+  await showPlan();
+  renderResults();
+  if (ui.tab === "place") renderEditor();
+  else renderManualBar();
+}
+
+/** Runs a manual-session command and shows the re-checked plan. */
+async function manualCall(cmd: string, args: Record<string, unknown>, record = true) {
+  try {
+    const before = manual.placements;
+    const view = await invoke<ManualView>(cmd, args);
+    if (record) {
+      manual.history.push(before);
+      if (manual.history.length > 100) manual.history.shift();
+    }
+    await applyManualView(view);
+  } catch (e) {
+    setStatus(String(e), "bad");
+  }
+}
+
+async function startManual() {
+  manual.started = true;
+  await manualCall("manual_set", { request: withModel(), placements: manual.placements }, false);
+}
+
+async function setMode(m: Mode) {
+  if (m === mode) return;
+  stopPlaying();
+  mode = m;
+  document.body.dataset.mode = m;
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#mode-switch button")) b.classList.toggle("active", b.dataset.mode === m);
+  for (const id of ["pack", "pack-mobile"]) $(id).textContent = m === "manual" ? "Auto-fill ▶" : "Pack ▶";
+  selected = null;
+  focusKeys.clear();
+  if (m === "manual") {
+    autoResult = result;
+    autoSearch = searchResult;
+    searchResult = null;
+    ui.tab = "place";
+    viewer.setInteraction(manualInteraction);
+    renderEditor();
+    await startManual();
+    setStatus("Manual mode: pick a unit in the Place tab, then click in the 3D view.");
+  } else {
+    viewer.setInteraction(null);
+    result = autoResult;
+    searchResult = autoSearch;
+    stale = stale || autoStale;
+    autoStale = false;
+    current = 0;
+    if (ui.tab === "place") ui.tab = "cargo";
+    renderEditor();
+    await showPlan();
+    renderResults();
+    setStatus("");
+  }
+}
+
+/** Holds a unit of `id` ready to place (or lets go of it). */
+async function armItem(id: string | null) {
+  manual.item = manual.item === id ? null : id;
+  manual.poses = [];
+  manual.pose = 0;
+  viewer.hideGhost();
+  const it = req.items.find((i) => i.id === manual.item);
+  if (it) {
+    try {
+      manual.poses = await invoke<Pose[]>("item_poses", { item: it, allowRotation: req.options.allow_rotation });
+    } catch (e) {
+      setStatus(String(e), "bad");
+    }
+    if (!manual.poses.length) setStatus(`${it.id} has no allowed orientation.`, "bad");
+  }
+  renderEditor();
+}
+
+function setManualHint(text: string) {
+  const el = document.getElementById("manual-hint");
+  if (el) el.textContent = text;
+}
+
+/** The units-to-place bar over the 3D view (handy on phones). */
+function renderManualBar() {
+  const bar = document.getElementById("manual-bar");
+  if (!bar) return;
+  if (mode !== "manual") return void bar.replaceChildren();
+  const left = new Map(manual.remaining);
+  const sel = h("select", { title: "Unit to place" }, h("option", { value: "" }, "Select / move"), ...req.items.map((it) => h("option", { value: it.id, disabled: (left.get(it.id) ?? 0) <= 0 }, `${it.id} (${left.get(it.id) ?? 0})`))) as HTMLSelectElement;
+  sel.value = manual.item ?? "";
+  sel.addEventListener("change", () => armItem(sel.value || null));
+  bar.replaceChildren(
+    sel,
+    h("button", { title: "Rotate (R)", onclick: rotateManual }, "⟳"),
+    h("button", { title: "Undo (Ctrl+Z)", onclick: undoManual, disabled: !manual.history.length }, "↶"),
+    h("button", { title: "Remove the selected unit (Delete)", onclick: removeSelected, disabled: !selected }, "✕"),
+    h("span", { id: "manual-hint", class: "hint" }, manual.item ? "Click in the container to place it" : selected ? `${selected.instance_id}: drag it, or use the arrow keys` : ""),
+  );
+}
+
+/** Lines a unit up with the walls and nearby faces (within 30 mm) and keeps it inside. */
+function snapped(x: number, z: number, size: [number, number, number], skip: string | null): [number, number] {
+  const { width: W, depth: D } = req.container;
+  let sx = Math.min(Math.max(0, x), Math.max(0, W - size[0]));
+  let sz = Math.min(Math.max(0, z), Math.max(0, D - size[2]));
+  if (manual.magnet) {
+    const near = (v: number, cands: number[]) => cands.reduce((best, c) => (Math.abs(v - c) < Math.abs(v - best) && Math.abs(v - c) < 30 ? c : best), v);
+    const xs = [0, W - size[0]];
+    const zs = [0, D - size[2]];
+    for (const p of manual.placements) {
+      if (p.instance_id === skip) continue;
+      xs.push(p.position[0] - size[0], p.position[0] + p.size[0], p.position[0]);
+      zs.push(p.position[2] - size[2], p.position[2] + p.size[2], p.position[2]);
+    }
+    sx = near(sx, xs);
+    sz = near(sz, zs);
+  }
+  return [Math.round(sx * 10) / 10, Math.round(sz * 10) / 10];
+}
+
+/** Probes run one at a time; while one runs, only the latest request waits. */
+let probeBusy = false;
+let probeNext: (() => Promise<void>) | null = null;
+function queueProbe(job: () => Promise<void>) {
+  if (probeBusy) {
+    probeNext = job;
+    return;
+  }
+  probeBusy = true;
+  job().finally(() => {
+    probeBusy = false;
+    const next = probeNext;
+    probeNext = null;
+    if (next) queueProbe(next);
+  });
+}
+
+/** Shows where a unit would land under the pointer, green or red. */
+function ghostAt(itemId: string, pose: Pose, hit: Hit, replace: string | null) {
+  const [x, z] = snapped(hit.point[0] - pose.extents[0] / 2, hit.point[2] - pose.extents[2] / 2, pose.extents, replace);
+  const y = manual.gravity ? null : hit.point[1];
+  queueProbe(async () => {
+    try {
+      const pr = await invoke<Probe>("manual_probe", { itemId, orientation: pose.orientation, x, z, y, replace });
+      if (!manual.item && !replace) return;
+      const p = pr.placement;
+      const key = meshKey(p);
+      if (!meshCache.has(key)) meshCache.set(key, await invoke<RenderMesh>("shape_mesh", { shape: p.shape, orientation: p.orientation }));
+      viewer.showGhost(key, meshCache.get(key)!, p.position, p.size, pr.problems.length === 0);
+      setManualHint(pr.problems.length ? `⚠ ${describeViolation(pr.problems[0])}` : `✓ x ${fmt(p.position[0])}, y ${fmt(p.position[1])}, z ${fmt(p.position[2])} mm`);
+    } catch (e) {
+      setManualHint(String(e));
+    }
+  });
+}
+
+let dragUnit: Placement | null = null;
+
+const manualInteraction: Interaction = {
+  hover(hit) {
+    const pose = manual.poses[manual.pose];
+    if (!manual.item || !pose || !hit) return void (manual.item ? undefined : viewer.hideGhost());
+    ghostAt(manual.item, pose, hit, null);
+  },
+  tap(hit) {
+    const pose = manual.poses[manual.pose];
+    if (!manual.item || !pose) return false;
+    if (!hit) return true;
+    const item = manual.item;
+    const [x, z] = snapped(hit.point[0] - pose.extents[0] / 2, hit.point[2] - pose.extents[2] / 2, pose.extents, null);
+    manualCall("manual_place", { itemId: item, orientation: pose.orientation, x, z, y: manual.gravity ? null : hit.point[1], replace: null }).then(() => {
+      // Let go of the item once all its units are in.
+      if ((new Map(manual.remaining).get(item) ?? 0) <= 0 && manual.item === item) armItem(null);
+    });
+    return true;
+  },
+  dragStart(p) {
+    if (manual.item) return false;
+    dragUnit = p;
+    selected = p;
+    viewer.highlight(p.instance_id);
+    return true;
+  },
+  drag(hit) {
+    if (dragUnit && hit) ghostAt(dragUnit.item_id, { orientation: dragUnit.orientation, extents: dragUnit.size }, hit, dragUnit.instance_id);
+  },
+  drop(hit) {
+    const p = dragUnit;
+    dragUnit = null;
+    viewer.hideGhost();
+    if (!p || !hit) return;
+    const [x, z] = snapped(hit.point[0] - p.size[0] / 2, hit.point[2] - p.size[2] / 2, p.size, p.instance_id);
+    manualCall("manual_place", { itemId: p.item_id, orientation: p.orientation, x, z, y: manual.gravity ? null : hit.point[1], replace: p.instance_id });
+  },
+};
+
+/** Moves or turns the selected unit; a typed Y places it exactly there. */
+function moveSelected(ch: { x?: number; y?: number | null; z?: number; orientation?: Orientation }) {
+  const p = selected;
+  if (!p) return;
+  const y = ch.y !== undefined ? ch.y : manual.gravity ? null : p.position[1];
+  manualCall("manual_place", { itemId: p.item_id, orientation: ch.orientation ?? p.orientation, x: ch.x ?? p.position[0], z: ch.z ?? p.position[2], y, replace: p.instance_id });
+}
+
+function selectedEditor(p: Placement): HTMLElement {
+  return h(
+    "div",
+    { class: "selected-edit" },
+    h(
+      "div",
+      { class: "grid" },
+      num("X mm", () => Math.round(p.position[0] * 10) / 10, (v) => moveSelected({ x: v ?? 0 }), { quiet: true }),
+      num("Y mm", () => Math.round(p.position[1] * 10) / 10, (v) => moveSelected({ y: v ?? 0 }), { quiet: true }),
+      num("Z mm", () => Math.round(p.position[2] * 10) / 10, (v) => moveSelected({ z: v ?? 0 }), { quiet: true }),
+    ),
+    h("div", { class: "actions" }, h("button", { onclick: rotateManual }, "⟳ Rotate"), h("button", { onclick: removeSelected }, "Remove")),
+  );
+}
+
+async function rotateManual() {
+  if (manual.item && manual.poses.length) {
+    manual.pose = (manual.pose + 1) % manual.poses.length;
+    renderEditor();
+    return;
+  }
+  const p = selected;
+  const it = p && req.items.find((i) => i.id === p.item_id);
+  if (!p || !it) return;
+  const poses = await invoke<Pose[]>("item_poses", { item: it, allowRotation: true });
+  if (poses.length < 2) return;
+  const k = poses.findIndex((q) => q.orientation === p.orientation);
+  moveSelected({ orientation: poses[(k + 1) % poses.length].orientation });
+}
+
+function removeSelected() {
+  const p = selected;
+  if (!p) return;
+  selected = null;
+  manualCall("manual_remove", { instanceId: p.instance_id });
+}
+
+function undoManual() {
+  const prev = manual.history.pop();
+  if (prev) manualCall("manual_set", { request: withModel(), placements: prev }, false);
+}
+
+function clearManual() {
+  if (manual.placements.length) manualCall("manual_set", { request: withModel(), placements: [] });
+}
+
+async function manualAutoFill() {
+  setStatus("Auto-filling around your units…");
+  try {
+    const r = await invoke<PackResult>("manual_auto_fill");
+    const view = await invoke<ManualView>("manual_set", { request: withModel(), placements: r.containers[0]?.placements ?? [] });
+    manual.history.push(manual.placements);
+    manual.source = "manual+auto";
+    await applyManualView(view);
+    if (r.containers.length > 1) {
+      result = { ...r, containers: [view.plan, ...r.containers.slice(1)] };
+      renderResults();
+      await showPlan();
+    }
+    setStatus(
+      `Auto-filled: ${r.packed_units}/${r.requested_units} units${r.containers.length > 1 ? `, ${r.containers.length - 1} more container(s)` : ""}`,
+      r.unpacked.length ? "bad" : "ok",
+    );
+  } catch (e) {
+    setStatus(String(e), "bad");
+  }
+}
+
+/** Keys in manual mode; returns true if the key was used. */
+function manualKey(e: KeyboardEvent): boolean {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") return (undoManual(), true);
+  if (e.key === "Escape" && manual.item) return (armItem(null), true);
+  if (e.key === "r" || e.key === "R") return (rotateManual(), true);
+  const p = selected;
+  if (!p) return false;
+  if (e.key === "Delete" || e.key === "Backspace") return (removeSelected(), true);
+  const step = e.shiftKey ? 100 : 10;
+  const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+  const m = moves[e.key];
+  if (!m) return false;
+  moveSelected({ x: p.position[0] + m[0], z: p.position[2] + m[1] });
+  return true;
+}
+
+// ---------- saved solutions and learning ----------
+
+/** Name and "use for training" for a plan to save. */
+function promptSave(name: string, valid: boolean): Promise<{ name: string; train: boolean } | null> {
+  const row = $("modal-check-row");
+  const cb = $<HTMLInputElement>("modal-check");
+  row.hidden = false;
+  cb.checked = valid;
+  cb.disabled = !valid;
+  $("modal-check-hint").textContent = valid ? "Teaches the learned placement what a good plan looks like." : "This plan has violations, so it cannot be used for training.";
+  return promptText("Save this plan as:", name).then((n) => {
+    row.hidden = true;
+    return n ? { name: n, train: cb.checked && valid } : null;
+  });
+}
+
+async function saveSolution() {
+  if (!result) return setStatus("Pack or place something first.", "bad");
+  const valid = result.containers.every((c) => c.violations.length === 0);
+  const source = mode === "manual" ? manual.source : searchResult ? "best" : "auto";
+  const answer = await promptSave(`${req.container.id} – ${new Date().toLocaleString()}`, valid);
+  if (!answer) return;
+  try {
+    await invoke("solution_save", { name: answer.name, source, train: answer.train, request: req, result });
+    setStatus(`Saved "${answer.name}"${answer.train ? " for training" : ""}. Open it from Solutions.`, "ok");
+  } catch (e) {
+    setStatus(String(e), "bad");
+  }
+}
+
+async function openSolution(id: string) {
+  const saved = await invoke<SavedPlan>("solution_load", { id });
+  loadRequest(saved.request);
+  if (saved.source.startsWith("manual")) {
+    manual.placements = saved.result.containers[0]?.placements ?? [];
+    manual.source = saved.source;
+    if (mode === "manual") await startManual();
+    else await setMode("manual");
+  } else {
+    if (mode === "manual") await setMode("auto");
+    result = saved.result;
+    current = 0;
+    await showPlan();
+    renderResults();
+  }
+  setStatus(`Opened "${saved.name}".`);
+}
+
+/** The Solutions dialog: saved plans, training flags and the learned model. */
+async function openSolutions() {
+  const box = h("div", { class: "modal-box wide" });
+  const overlay = h("div", { class: "modal" }, box);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  document.body.append(overlay);
+  const render = async () => {
+    let list: SolutionMeta[] = [];
+    try {
+      list = await invoke<SolutionMeta[]>("solution_list");
+      model = await invoke<ModelFile | null>("model_info");
+    } catch (e) {
+      setStatus(String(e), "bad");
+    }
+    const flagged = list.filter((m) => m.train && m.valid).length;
+    const row = (m: SolutionMeta) => {
+      const cb = h("input", { type: "checkbox", disabled: !m.valid, title: m.valid ? "Use for training" : "Has violations: cannot be used for training" }) as HTMLInputElement;
+      cb.checked = m.train;
+      cb.addEventListener("change", async () => {
+        try {
+          await invoke("solution_set_train", { id: m.id, train: cb.checked });
+        } catch (e) {
+          setStatus(String(e), "bad");
+        }
+        render();
+      });
+      return h(
+        "div",
+        { class: "sol-row" },
+        h("div", { class: "sol-main" }, h("b", {}, m.name), h("span", {}, `${new Date(m.created * 1000).toLocaleString()} · ${m.source} · ${m.summary}`)),
+        h("span", { class: `badge ${m.valid ? "ok" : "bad"}`, title: m.valid ? "Valid plan" : "Has violations" }, m.valid ? "✓" : "✗"),
+        h("label", { class: "train", title: "Use this plan to train the learned placement" }, cb, "train"),
+        h("button", { class: "small", onclick: async () => {
+          close();
+          try {
+            await openSolution(m.id);
+          } catch (e) {
+            setStatus(String(e), "bad");
+          }
+        } }, "Open"),
+        h("button", { class: "small", title: "Delete", onclick: async () => {
+          if (!(await ask(`Delete "${m.name}"?`, { title: "Delete solution", kind: "warning" }))) return;
+          await invoke("solution_delete", { id: m.id });
+          render();
+        } }, "✕"),
+      );
+    };
+    const r = model?.report;
+    box.replaceChildren(
+      h("h3", {}, "Saved solutions", h("span", { class: "spacer" }), h("button", { class: "small", onclick: close }, "✕")),
+      list.length ? h("div", { class: "sol-list" }, ...[...list].reverse().map(row)) : h("p", { class: "hint" }, "Nothing saved yet. Use “Save solution…” under the results, in auto or manual mode."),
+      h("h3", {}, "Learned placement"),
+      h(
+        "p",
+        { class: "hint" },
+        model && r
+          ? `Trained ${new Date(model.trained * 1000).toLocaleString()} on ${r.steps} placement decisions from ${r.plans} plan(s). The position you chose ranks first in ${fmt(r.top1_before * 100)} % of them with the closest built-in pattern, ${fmt(r.top1_after * 100)} % with the learned weights. Use it with the fill pattern “Learned”; ★ Best tries it too.`
+          : "No model yet. Tick “train” on valid plans you like (yours or automatic ones), then train.",
+      ),
+      h("p", { class: "hint" }, `${flagged} plan(s) marked for training.`),
+      h(
+        "div",
+        { class: "actions" },
+        h("button", { class: "primary", disabled: !flagged, onclick: async () => {
+          setStatus("Training…");
+          try {
+            model = await invoke<ModelFile>("model_train");
+            setStatus(`Trained on ${model.report.steps} decisions: ${fmt(model.report.top1_before * 100)} % → ${fmt(model.report.top1_after * 100)} % ranked first.`, "ok");
+            renderEditor();
+          } catch (e) {
+            setStatus(String(e), "bad");
+          }
+          render();
+        } }, "Train model"),
+        h("button", { disabled: !flagged, onclick: async () => {
+          try {
+            await saveTextFile("omnipack-training.jsonl", "jsonl", await invoke<string>("training_data"));
+          } catch (e) {
+            setStatus(String(e), "bad");
+          }
+        } }, "Export training data"),
+        model
+          ? h("button", { onclick: async () => {
+              if (!(await ask("Forget the learned model?", { title: "Reset model", kind: "warning" }))) return;
+              await invoke("model_reset");
+              model = null;
+              if (req.options.bias === "learned") req.options.bias = "wall_building";
+              renderEditor();
+              render();
+            } }, "Reset model")
+          : null,
+      ),
+    );
+  };
+  await render();
+}
+
+// ---------- panel width ----------
+
+function applyEditorWidth() {
+  document.documentElement.style.setProperty("--editor-w", `${ui.width}px`);
+}
+
+$("editor-resize").addEventListener("pointerdown", (e) => {
+  const el = e.currentTarget as HTMLElement;
+  el.setPointerCapture(e.pointerId);
+  el.classList.add("resizing");
+  const left = $("editor").getBoundingClientRect().left;
+  const move = (ev: PointerEvent) => {
+    ui.width = Math.round(Math.min(Math.max(300, ev.clientX - left), window.innerWidth * 0.5));
+    applyEditorWidth();
+  };
+  const up = () => {
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    el.classList.remove("resizing");
+    saveUi();
+  };
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+});
+
 // ---------- wiring ----------
+
+for (const b of document.querySelectorAll<HTMLButtonElement>("#mode-switch button")) b.addEventListener("click", () => setMode(b.dataset.mode as Mode));
+$("solutions").addEventListener("click", openSolutions);
 
 for (const b of document.querySelectorAll<HTMLButtonElement>("#mobile-tabs button[data-tab]")) b.addEventListener("click", () => showTab(b.dataset.tab!));
 $("pack-mobile").addEventListener("click", runPack);
@@ -1521,11 +2299,16 @@ viewer.onPick((p) => {
   selected = p;
   viewer.highlight(p?.instance_id ?? null);
   renderResults();
+  renderManualBar();
 });
 
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key === "Enter") return void runPack();
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
+  if (!typing && mode === "manual" && manualKey(e)) {
+    e.preventDefault();
+    return;
+  }
   if (typing || !currentPlan()) return;
   const n = Number($<HTMLInputElement>("step").value);
   const keys: Record<string, () => void> = {
@@ -1555,6 +2338,12 @@ async function init() {
   } catch {
     // Presets are a convenience; the fields can still be typed in.
   }
+  try {
+    model = await invoke<ModelFile | null>("model_info");
+  } catch {
+    model = null;
+  }
+  applyEditorWidth();
   renderEditor();
   renderResults();
   showPlan();

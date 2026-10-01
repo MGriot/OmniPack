@@ -50,6 +50,8 @@ struct Analysis<'a> {
     statics_violations: Vec<Violation>,
     /// What each item puts on the container floor.
     floor: Vec<FloorLoad>,
+    /// Margin of each item's static load resultant to its support edge, mm.
+    margin: Vec<f64>,
 }
 
 /// Load an item puts on the container floor.
@@ -107,6 +109,7 @@ fn analyze<'a>(
     let mut res = vec![None; n];
     let mut statics_violations = Vec::new();
     let mut floor = vec![FloorLoad::default(); n];
+    let mut margin = vec![0.0; n];
     let mut top_down: Vec<usize> = (0..n).collect();
     top_down.sort_by(|&a, &b| placements[b].seq.cmp(&placements[a].seq));
     for &i in &top_down {
@@ -126,6 +129,7 @@ fn analyze<'a>(
         res[i] = Some(r);
         let held = roll[i].is_held();
         let m = scene::stability_margin(&info.set, r, held);
+        margin[i] = m;
         if m < required[i] - 1e-6 {
             statics_violations.push(Violation::Unstable { item: p.instance_id.clone(), margin: m, required: required[i] });
         }
@@ -146,7 +150,7 @@ fn analyze<'a>(
         }
     }
 
-    Analysis { bodies, near, infos, roll, required, incoming, incoming_y, resultant: res, statics_violations, floor }
+    Analysis { bodies, near, infos, roll, required, incoming, incoming_y, resultant: res, statics_violations, floor, margin }
 }
 
 /// Floor contact area of a body, mm². Round items on a line or a point are
@@ -177,6 +181,12 @@ pub struct PlanCheck {
     pub transport: TransportReport,
     /// Per placement.
     pub floor_pressure: Vec<FloorLoad>,
+    /// Per placement: round unit that needs wedges.
+    pub needs_chocks: Vec<bool>,
+    /// Per placement: mass resting on it, kg.
+    pub load_on_top: Vec<f64>,
+    /// Per placement: margin of its load resultant, mm.
+    pub margin: Vec<f64>,
 }
 
 /// [`validate`], [`transport_report`] and the floor pressures together.
@@ -187,6 +197,9 @@ pub fn check_plan(container: &ContainerSpec, specs: &[ItemSpec], opts: &PackOpti
     PlanCheck {
         violations: violations(container, &spec_of, opts, placements, &a),
         transport: transport_of(container, &spec_of, opts, placements, &a),
+        needs_chocks: a.roll.iter().map(|r| *r == Roll::NeedsChocks).collect(),
+        load_on_top: a.incoming.iter().map(|l| l[0]).collect(),
+        margin: a.margin,
         floor_pressure: a.floor,
     }
 }

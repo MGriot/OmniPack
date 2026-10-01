@@ -10,6 +10,8 @@
 pub mod balance;
 pub mod generate;
 pub mod grid;
+pub mod learn;
+pub mod manual;
 pub mod model;
 pub mod placer;
 pub mod plan;
@@ -141,13 +143,43 @@ pub fn pack(req: &PackRequest) -> Result<PackResult, PackError> {
     Ok(pack_sequence(req, &seq))
 }
 
+/// Packs the units around `fixed` placements (for example placed by hand),
+/// which keep their positions in the first container even if they fail the
+/// checks. Nothing is stacked on a fixed unit that fails them; the plan's
+/// violations report it.
+pub fn pack_with_fixed(req: &PackRequest, fixed: &[Placement]) -> Result<PackResult, PackError> {
+    check(req)?;
+    let seq = default_sequence(req);
+    Ok(pack_inner(req, &seq, fixed))
+}
+
 /// Packs units in the given order (the optimizer supplies other orders).
 pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
+    pack_inner(req, instances, &[])
+}
+
+fn pack_inner(req: &PackRequest, instances: &[Instance], fixed: &[Placement]) -> PackResult {
     let t0 = Instant::now();
     let c = &req.container;
+    // Fixed units: (instance, orientation, position), in their loading order.
+    let index_of: std::collections::HashMap<&str, usize> = instances.iter().enumerate().map(|(i, x)| (x.id.as_str(), i)).collect();
+    let mut by_seq: Vec<&Placement> = fixed.iter().collect();
+    by_seq.sort_by_key(|p| p.seq);
+    let fixed_units: Vec<(usize, usize, [f64; 3])> = by_seq
+        .iter()
+        .filter_map(|p| {
+            let i = *index_of.get(p.instance_id.as_str())?;
+            let o = instances[i].shapes.iter().position(|s| s.orientation == p.orientation)?;
+            Some((i, o, p.position))
+        })
+        .collect();
+    let is_fixed: std::collections::HashSet<usize> = fixed_units.iter().map(|f| f.0).collect();
     let mut unpacked = Vec::new();
     let mut pending: Vec<usize> = Vec::new();
     for (i, inst) in instances.iter().enumerate() {
+        if is_fixed.contains(&i) {
+            continue;
+        }
         let reason = if inst.shapes.is_empty() {
             Some(UnpackReason::NoOrientation)
         } else if !fits_empty(inst, c) {
@@ -166,7 +198,7 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
     }
 
     let mut containers = Vec::new();
-    while !pending.is_empty() {
+    while !pending.is_empty() || (containers.is_empty() && !fixed_units.is_empty()) {
         if containers.len() as u32 >= req.options.max_containers {
             for &i in &pending {
                 unpacked.push(Unpacked {
@@ -178,6 +210,12 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
             break;
         }
         let mut state = ContainerState::new(c, &req.options, instances);
+        let with_fixed = containers.is_empty() && !fixed_units.is_empty();
+        if with_fixed {
+            for &(i, o, min) in &fixed_units {
+                state.force_place(i, o, min);
+            }
+        }
         let mut left = Vec::new();
         // A spec that failed stays failed until something new is placed.
         let mut failed_at: std::collections::HashMap<usize, usize> = Default::default();
@@ -202,7 +240,8 @@ pub fn pack_sequence(req: &PackRequest, instances: &[Instance]) -> PackResult {
             }
             break;
         }
-        containers.push(finish_container(req, instances, &state, containers.len()));
+        // Hand-placed units keep their positions: no lengthwise centring.
+        containers.push(finish_container(req, instances, &state, containers.len(), !with_fixed));
         pending = left;
     }
 
@@ -256,10 +295,10 @@ fn placements_of(req: &PackRequest, instances: &[Instance], state: &ContainerSta
 /// contact queries are only translation-invariant up to rounding, so the
 /// moved load is rebuilt unit by unit through the placer's own checks (every
 /// loading step stays verified) and kept only if it then validates cleanly.
-fn centre(req: &PackRequest, instances: &[Instance], state: &ContainerState) -> (f64, Vec<Placement>, validate::PlanCheck) {
+fn centre(req: &PackRequest, instances: &[Instance], state: &ContainerState, allow_shift: bool) -> (f64, Vec<Placement>, validate::PlanCheck) {
     let (c, opts) = (&req.container, &req.options);
     let placements = placements_of(req, instances, state);
-    if opts.balance.centre_lengthwise {
+    if opts.balance.centre_lengthwise && allow_shift {
         let mut moved = placements.clone();
         let shift = balance::centre_lengthwise(c, opts, &mut moved);
         if shift != 0.0 {
@@ -277,9 +316,14 @@ fn centre(req: &PackRequest, instances: &[Instance], state: &ContainerState) -> 
     (0.0, placements, check)
 }
 
-fn finish_container(req: &PackRequest, instances: &[Instance], state: &ContainerState, index: usize) -> ContainerPlan {
+fn finish_container(req: &PackRequest, instances: &[Instance], state: &ContainerState, index: usize, allow_shift: bool) -> ContainerPlan {
+    let (shift, placements, check) = centre(req, instances, state, allow_shift);
+    build_plan(req, placements, shift, check, index)
+}
+
+/// The finished container: metrics, violations, transport and balance.
+pub(crate) fn build_plan(req: &PackRequest, mut placements: Vec<Placement>, shift: f64, check: validate::PlanCheck, index: usize) -> ContainerPlan {
     let c = &req.container;
-    let (shift, mut placements, check) = centre(req, instances, state);
     let metrics = validate::compute_metrics(c, &placements);
     let report = check.transport;
     let mut floor_load = Vec::with_capacity(placements.len());

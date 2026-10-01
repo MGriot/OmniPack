@@ -30,6 +30,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 pub const BIASES: [FillBias; 5] = [FillBias::WallBuilding, FillBias::FloorFirst, FillBias::Longitudinal, FillBias::Lateral, FillBias::CornerFirst];
+
+/// Fill patterns the search tries: the hand-tuned ones, plus the learned
+/// ranker when the request carries one.
+pub fn biases(req: &PackRequest) -> Vec<FillBias> {
+    let mut b = BIASES.to_vec();
+    if req.options.ranker.is_some() {
+        b.push(FillBias::Learned);
+    }
+    b
+}
 pub const PRIORITIES: [LoadPriority; 5] = [LoadPriority::Volume, LoadPriority::Mass, LoadPriority::BaseArea, LoadPriority::Height, LoadPriority::AsListed];
 
 /// What a good plan is, beyond packing every unit into as few containers as
@@ -237,6 +247,7 @@ struct Decoder<'a> {
     req: &'a PackRequest,
     base: Vec<Instance>,
     groups: Vec<(i64, u8, bool)>,
+    biases: Vec<FillBias>,
 }
 
 impl Decoder<'_> {
@@ -244,9 +255,10 @@ impl Decoder<'_> {
         2 * self.base.len() + 1
     }
 
-    fn bias(g: &Genes) -> FillBias {
+    fn bias(&self, g: &Genes) -> FillBias {
         let k = *g.last().unwrap_or(&0.0);
-        BIASES[((k * BIASES.len() as f64) as usize).min(BIASES.len() - 1)]
+        let n = self.biases.len();
+        self.biases[((k * n as f64) as usize).min(n - 1)]
     }
 
     fn decode(&self, g: &Genes) -> PackResult {
@@ -264,7 +276,7 @@ impl Decoder<'_> {
             })
             .collect();
         let mut req = self.req.clone();
-        req.options.bias = Self::bias(g);
+        req.options.bias = self.bias(g);
         pack_sequence(&req, &seq)
     }
 
@@ -277,8 +289,8 @@ impl Decoder<'_> {
         for (i, inst) in self.base.iter().enumerate() {
             g[i] = (rank.get(inst.id.as_str()).copied().unwrap_or(i) as f64 + 0.5) / n as f64;
         }
-        let bi = BIASES.iter().position(|b| *b == bias).unwrap_or(0);
-        g[2 * n] = (bi as f64 + 0.5) / BIASES.len() as f64;
+        let bi = self.biases.iter().position(|b| *b == bias).unwrap_or(0);
+        g[2 * n] = (bi as f64 + 0.5) / self.biases.len() as f64;
         g
     }
 }
@@ -388,7 +400,7 @@ pub fn optimize(req: &PackRequest, opts: &OptimizeOptions, cancel: &AtomicBool, 
 
     // Phase 1: every fill pattern × load priority.
     let mut configs = Vec::new();
-    for bias in BIASES {
+    for bias in biases(req) {
         for priority in PRIORITIES {
             if bias != req.options.bias || priority != req.options.priority {
                 configs.push((bias, priority));
@@ -414,7 +426,7 @@ pub fn optimize(req: &PackRequest, opts: &OptimizeOptions, cancel: &AtomicBool, 
 
     // Phase 2: BRKGA over order, orientation and fill pattern.
     let base = default_sequence(req);
-    let decoder = Decoder { req, groups: base.iter().map(|i| load_group(&req.options, i)).collect(), base };
+    let decoder = Decoder { req, groups: base.iter().map(|i| load_group(&req.options, i)).collect(), base, biases: biases(req) };
     let mut rng = ChaCha8Rng::seed_from_u64(opts.seed ^ req.options.seed);
     let p = opts.population.max(4);
     let n_elite = ((p as f64 * opts.elite_fraction).round() as usize).clamp(1, p - 1);

@@ -36,7 +36,14 @@ export function defaultShape(kind: ShapeKind): Shape {
 
 export type Orientation = "WHD" | "DHW" | "HWD" | "WDH" | "HDW" | "DWH";
 export type Zone = "any" | "back" | "front";
-export type FillBias = "wall_building" | "floor_first" | "longitudinal" | "lateral" | "corner_first";
+export type FillBias = "wall_building" | "floor_first" | "longitudinal" | "lateral" | "corner_first" | "learned";
+
+/** Learned placement-score weights (see docs/learning.md). */
+export interface Ranker {
+  weights: number[];
+  examples: number;
+  accuracy: number;
+}
 export type StopOrder = "lifo" | "fifo";
 export type LoadPriority = "volume" | "mass" | "base_area" | "height" | "as_listed";
 
@@ -189,6 +196,8 @@ export interface PackOptions {
   max_stability_checks: number;
   seed: number;
   balance: BalanceOptions;
+  /** Used by the "learned" fill pattern. */
+  ranker?: Ranker | null;
 }
 
 export interface PackRequest {
@@ -479,4 +488,59 @@ export interface SearchProgress {
   evaluated: number;
   elapsed_ms: number;
   best: Score;
+}
+
+// ---------- manual placement, saved plans, learning ----------
+
+/** An allowed resting orientation of an item and its bounding box there. */
+export interface Pose {
+  orientation: Orientation;
+  extents: [number, number, number];
+}
+
+/** Where a unit would land, and what would be wrong there. */
+export interface Probe {
+  placement: Placement;
+  problems: Violation[];
+}
+
+export interface ManualView {
+  plan: ContainerPlan;
+  /** [item id, units still to place] */
+  remaining: [string, number][];
+}
+
+export interface SolutionMeta {
+  id: string;
+  name: string;
+  /** Seconds since 1970. */
+  created: number;
+  source: string;
+  train: boolean;
+  valid: boolean;
+  summary: string;
+}
+
+export interface SavedPlan {
+  id: string;
+  name: string;
+  created: number;
+  source: string;
+  train: boolean;
+  request: PackRequest;
+  result: PackResult;
+}
+
+export interface TrainReport {
+  plans: number;
+  steps: number;
+  pairs: number;
+  top1_before: number;
+  top1_after: number;
+}
+
+export interface ModelFile {
+  ranker: Ranker;
+  report: TrainReport;
+  trained: number;
 }

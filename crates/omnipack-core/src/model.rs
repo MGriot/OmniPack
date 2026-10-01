@@ -260,6 +260,9 @@ pub enum FillBias {
     Lateral,
     /// Grow outward from the back-left-bottom corner.
     CornerFirst,
+    /// Score positions with the weights learned from saved plans
+    /// ([`PackOptions::ranker`]); without a ranker, as `WallBuilding`.
+    Learned,
 }
 
 impl FillBias {
@@ -269,7 +272,7 @@ impl FillBias {
         const B: f64 = 1e-2;
         const C: f64 = 1e-4;
         match self {
-            FillBias::WallBuilding => [C, B, A],
+            FillBias::WallBuilding | FillBias::Learned => [C, B, A],
             FillBias::FloorFirst => [C, A, B],
             FillBias::Longitudinal => [A, B, C],
             FillBias::Lateral => [B, A, C],
@@ -607,6 +610,23 @@ pub struct PackOptions {
     pub weights: ScoreWeights,
     /// Load distribution checks (CTU Code) and lengthwise centring.
     pub balance: BalanceOptions,
+    /// Placement scoring learned from saved plans, used by
+    /// [`FillBias::Learned`] (see `learn.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranker: Option<Ranker>,
+}
+
+/// Weights of the placement features (`placer::FEATURES`), learned from plans
+/// the user marked as good. Lower scores win.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Ranker {
+    pub weights: Vec<f64>,
+    /// Placement decisions it was trained on.
+    #[serde(default)]
+    pub examples: usize,
+    /// Share of those decisions it ranks first, 0..1.
+    #[serde(default)]
+    pub accuracy: f64,
 }
 
 /// Secondary terms of the placement score. The fill pattern decides the main
@@ -651,6 +671,7 @@ impl Default for PackOptions {
             seed: 0,
             weights: ScoreWeights::default(),
             balance: BalanceOptions::default(),
+            ranker: None,
         }
     }
 }

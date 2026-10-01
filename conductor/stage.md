@@ -24,7 +24,7 @@ was replaced:
 | M3 | Rapier3D dynamic simulation + replay (quasi-static EN 12195-1 checks already in M2b) | todo |
 | M4 | BRKGA / NSGA-II Pareto optimizer, beam + local search, diverse solutions | **partly done**: sweep + BRKGA + local search, 3 distinct plans (`omnipack-opt`); NSGA-II and block building open |
 | M5 | Any-shape items: mesh import, convex decomposition, stable poses | todo |
-| M6 | ONNX learned candidate ranker (on only if benchmarks improve) | todo |
+| M6 | ONNX learned candidate ranker (on only if benchmarks improve) | **partly done** (0.6): linear learned placement score trained in-app from marked plans, plus a learning-to-rank data export; the ONNX ranker is open |
 
 ## M1 baseline (release build, `omnipack bench 2`)
 Greedy constructive placer with stability margin 0.1 and 50% minimum support:

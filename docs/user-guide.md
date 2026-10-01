@@ -4,9 +4,24 @@ This guide walks through the OmniPack app on Windows and Android. Both use the s
 screens; on a phone they are split into **Setup**, **3D view** and **Results** tabs, with
 a **Pack** button at the bottom.
 
+The app has two modes, switched in the toolbar:
+- **Auto:** OmniPack places everything.
+- **Manual:** you place units yourself, and OmniPack can fill in the rest (see
+  [Manual placement](#8-manual-placement)).
+
+### The setup panel
+
+The setup panel on the left has four tabs: **Container**, **Cargo**, **Strategy** and
+**Physics**. In manual mode there is a fifth, **Place**.
+- Within a tab, the settings are grouped in sections that fold away.
+- A folded section shows a one-line summary, for example "40 ft high cube · 2352 ×
+  2698 × 12 032 mm · door 2340 × 2585".
+- The app remembers the open tab, which sections are open, and the panel width.
+- To make the panel wider or narrower, drag its right edge (desktop).
+
 ## 1. Describe the container
 
-In **Container**, pick a **Type** or enter the inside width (X), height (Y) and depth (Z)
+In the **Container** tab, pick a **Type** or enter the inside width (X), height (Y) and depth (Z)
 in millimetres yourself. The **door is at the far end of the depth axis** and is drawn
 in orange. Depth 0 is the front wall, where braking pushes the cargo.
 
@@ -35,7 +50,7 @@ Optional limits:
 
 Leave a field empty for "no limit".
 
-**Road vehicle:** pick a tractor + 3-axle container chassis to see the steer axle,
+**Road vehicle** (its own section): pick a tractor + 3-axle container chassis to see the steer axle,
 drive axle, trailer axles and gross mass against the EU limits (10 t, 11.5 t, 24 t,
 44 t). **Vehicle geometry and limits** lets you enter your own vehicle: distances
 along the vehicle in mm, rearwards positive, measured from the kingpin or the steer
@@ -43,7 +58,14 @@ axle.
 
 ## 2. Add the cargo
 
-Use **+ Add…** to add an item type, choosing its shape:
+The **Cargo** tab lists one row per item type: colour, name, shape and size, quantity and
+mass per unit.
+- Click a row to open its full card, with every field and a 3D preview. Click it again
+  to close it.
+- **⧉** duplicates an item and **✕** removes it.
+- With more than six items, a filter box finds them by name.
+
+Use **+ Add item…** to add an item type, choosing its shape:
 
 | Shape | Size fields | Typical cargo |
 |---|---|---|
@@ -55,7 +77,7 @@ Use **+ Add…** to add an item type, choosing its shape:
 | Prism | sides (3 = triangle, 6 = hexagon…), radius, length | beams, bars, extrusions |
 | L-profile | leg A, leg B, thickness, length | steel angles |
 
-**+ Add…** also offers loaded pallets: **Euro pallet EPAL 1** (1200 × 800) and
+**+ Add item…** also offers loaded pallets: **Euro pallet EPAL 1** (1200 × 800) and
 **Industrial pallet EPAL 2** (1200 × 1000). Both start 1 m high, 500 kg, this side up,
 with friction 0.45 (wood on plywood); set their real height and mass. In a container
 2352 mm wide, two EPAL 1 do not fit side by side on their long sides (2400 mm).
@@ -85,6 +107,8 @@ a 20 ft container, and benchmark sets.
 
 ## 3. Choose the loading strategy
 
+These settings are in the **Strategy** tab.
+
 - **Unloading order:**
   - **LIFO:** for vehicles unloaded through a rear door. The last stop is loaded first,
     deep inside, and the first stop ends up at the door.
@@ -94,6 +118,9 @@ a 20 ft container, and benchmark sets.
   listed.
 - **Fill pattern:** the order in which space is used. Choose walls across the width, full
   floor layers, walls along the length, rows along the length, or growing from a corner.
+- **Learned (from your saved plans):** appears once you have trained a model (see
+  [Saved solutions and learned placement](#9-saved-solutions-and-learned-placement)).
+  It places units the way your marked plans do.
 - **★ Best: search all patterns & orders:** instead of one pattern, OmniPack searches.
   It tries every fill pattern and load priority, then evolves loading orders and
   orientations (a genetic search followed by local search). Every candidate gets the full
@@ -121,8 +148,8 @@ a 20 ft container, and benchmark sets.
 
 ## 4. Choose the physics
 
-Gravity support, tipping at rest, stacking limits and payload are always checked.
-Under **Physics & transport**:
+Gravity support, tipping at rest, stacking limits and payload are always checked. The
+**Physics** tab has these sections:
 
 - **Transport legs:** tick every leg of the journey, for example Road, then Rail
   (shunting), then Sea area B. Each preset lists its accelerations (forward / backward /
@@ -231,3 +258,77 @@ smaller balance warnings; the **Prefer** slider gives them more weight towards
 - **Export plan (JSON):** every placement with its coordinates, for other software.
 - **Export load list (CSV):** a loading list for the warehouse, with position, size,
   orientation, mass, floor pressure, stop, chocks, lashings and securing notes.
+- **Save solution…:** keeps the plan, with its setup, inside the app (see below).
+
+## 8. Manual placement
+
+Switch the toolbar to **Manual**. The 3D view now shows your own plan, and the
+**Place** tab lists every item with the number of units still to place.
+
+1. **Pick a unit** in the Place tab, or in the bar over the 3D view on a phone.
+2. **Choose its orientation** with the buttons, which show the size W × H × D it takes
+   in the container, or press **R** to cycle through them. Only the orientations the
+   item allows are offered.
+3. **Point** in the 3D view. A see-through ghost shows where the unit would land: it
+   drops onto the floor or onto the units below it.
+   - Green means the position passes the checks.
+   - Red means it does not, and the bar says why (for example "not on floor",
+     "overlap", "unstable").
+4. **Click or tap** to place it. Keep clicking to place more units of the same item;
+   **Esc** lets go.
+
+Moving and editing:
+- **Drag** a placed unit to move it. The view does not turn while you drag.
+- **Click** a unit to select it. The arrow keys nudge it by 10 mm, or 100 mm with Shift.
+  **Delete** removes it.
+- The **Results** panel has X / Y / Z fields for exact positions, plus ⟳ Rotate and
+  Remove.
+- **Ctrl+Z** undoes your last steps.
+
+Options:
+- **Snap down with gravity** (on): units always rest on what is below them. Switch it
+  off to put a unit at the height you point at or type; a floating unit is flagged.
+- **Snap to walls and faces** (on): within 30 mm of a wall or another unit's face, the
+  unit lines up with it.
+
+**Nothing is refused.** Any position can be used. The plan is checked exactly like an
+automatic one, and every problem is listed under Violations: overlaps, floating or
+unstable units, overloads, the door, floor-only units. The badge counts the problems
+flagged. Transport securing, load balance and floor pressure work as in auto mode.
+
+The **loading order** is the order you placed the units in. If that order is not
+physically possible (you placed a unit in the air and slid one under it afterwards),
+the units are loaded lowest first instead.
+
+**Auto-fill the rest** (or **Auto-fill ▶** in the toolbar) packs every unit you have
+not placed yet around yours, with the current strategy. Your units keep their
+positions. Nothing is stacked on a unit of yours that fails the checks. If the rest
+does not fit, further containers are added. You can keep editing afterwards.
+
+Switching back to **Auto** shows the automatic plan again. Both plans are kept.
+
+## 9. Saved solutions and learned placement
+
+**Save solution…** (under the results, in either mode) keeps the plan together with its
+setup. Tick **Use for training** to let the plan teach OmniPack your way of loading.
+Only plans without violations can be used for training.
+
+**Solutions…** in the toolbar lists the saved plans with:
+- the date and how each plan was made: auto, best, manual, or manual + auto;
+- whether it is valid (✓ / ✗);
+- a **train** checkbox;
+- **Open**, which loads the setup and the plan, in manual mode for hand-made plans,
+  and **✕**, which deletes it.
+
+Below the list:
+- **Train model** learns placement scoring from the plans marked "train". It reports
+  how many placement decisions it learned from. It also reports how often your chosen
+  position ranks first: with the closest built-in fill pattern before training, and
+  with the learned weights after it. It takes a second or two.
+- The fill pattern **Learned (from your saved plans)** then appears in the Strategy
+  tab, and **★ Best** tries it as well. **Reset model** forgets it.
+- **Export training data** writes the decisions as JSON lines, for training other
+  models.
+
+[Learned placement](learning.md) explains how the learning works.
+
