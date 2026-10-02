@@ -32,7 +32,9 @@ API** → **Apply**.
 
 **As a service (`omnipack-server`):** the same API, without the app. It is a single
 executable for Windows (`omnipack-server_<version>_windows-x64.exe`) and Linux
-(`omnipack-server_<version>_linux-x64`), also available as a Docker image.
+(`omnipack-server_<version>_linux-x64`, glibc 2.35 or newer), attached to each
+[release](../../../releases). A Docker image builds from the repository's `Dockerfile`
+(see **Docker** below).
 
 ```
 omnipack-server                                   # http://127.0.0.1:8765, this computer only
@@ -67,6 +69,9 @@ omnipack-server --config server.json              # all settings in one file
 docker build -t omnipack-server .
 docker run -d -p 8765:8765 -e OMNIPACK_API_KEYS=change-me omnipack-server
 ```
+
+With a buildx `docker-container` builder, add `--load` to `docker build` so the image
+lands in the local image store.
 
 **As a Windows service:** with [NSSM](https://nssm.cc), run
 `nssm install OmniPack C:\omnipack\omnipack-server.exe --bind 0.0.0.0:8765 --api-key change-me`.

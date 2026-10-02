@@ -4,6 +4,45 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.7.0] - 2026-10-02
+
+### Added
+- **Integration API** (`crates/omnipack-api`, [docs/api.md](docs/api.md)), so other
+  systems (SAP and other ERP or warehouse systems) can send cargo and get placements
+  back.
+  - REST endpoints under `/api/v1`, with an OpenAPI 3.1 description.
+  - A simple ERP format: SAP field names, SAP/ISO unit codes (`CMT`, `KGM`, `LBR`, …),
+    and a flat placement list in the request's units, with loading sequence, rotation
+    and securing.
+  - The full OmniPack JSON for `/pack` and `/optimize`.
+  - `/validate` checks plans made elsewhere.
+  - CSV load lists.
+  - Background jobs with progress, cancel, and callback URLs with custom headers.
+  - File drop folders (JSON or CSV in, result and load list out, written atomically).
+    CSV item lists may use SAP column names (`MATNR`, `LFIMG`, `LAENG`, `BRGEW`, …).
+  - API keys; optional HTTPS.
+- **`omnipack-server`**: the API as a standalone service for Windows and Linux, with
+  flags or a JSON config, a Dockerfile, and setup notes for a Windows service (NSSM)
+  and systemd.
+- **Local API in the Windows app:** the **API…** dialog serves the same API while the
+  app runs. It offers the port, a generated key, "allow other computers" and drop
+  folders, and uses the app's learned model.
+
+### Fixed
+- **Drag & drop in manual mode** never dropped the unit with a real mouse or touch (the
+  release was swallowed). Units now move. The view still does not turn while dragging,
+  a slight jitter on a tap is not taken as a drag, and a unit let go outside the
+  container lands at the last spot it was dragged over.
+- **Phones:**
+  - Auto | Manual and Solutions come first in the toolbar.
+  - Messages show on their own line above the tabs.
+  - The 3D view is framed correctly when it was prepared while hidden (manual mode).
+  - The help texts talk about tapping, not keys, also on phones whose browser reports
+    a mouse-like pointer.
+  - Saving and opening files says "Saved." / "Opened." instead of showing an Android
+    `content://` address.
+- An empty plan showed "-0" for its mass and centre of gravity.
+
 ## [0.6.0] - 2026-10-02
 
 ### Added

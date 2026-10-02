@@ -2472,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-api"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "axum-server",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-app"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "omnipack-api",
  "omnipack-core",
@@ -2507,7 +2507,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "omnipack-core",
  "omnipack-opt",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "nalgebra",
  "omnipack-geom",
@@ -2531,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-geom"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "parry3d-f64",
  "proptest",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-opt"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "omnipack-core",
  "proptest",
@@ -2553,7 +2553,7 @@ dependencies = [
 
 [[package]]
 name = "omnipack-server"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "omnipack-api",
  "serde",
