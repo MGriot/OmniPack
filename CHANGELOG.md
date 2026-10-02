@@ -4,6 +4,21 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.7.1] - 2026-10-02
+
+### Fixed
+- **Manual mode:** the green or red ghost kept showing the old plan after a unit was
+  placed, moved, removed or undone. On phones, which have no hover to redraw it, it sat
+  on top of the unit just placed. It is now cleared on every change.
+- The timeline's last line said "All items loaded" while units were still waiting
+  (manual mode) or did not fit (automatic). It now says how many.
+
+### Documentation
+- Building guide: the API server, the Linux binary built in Docker, and the release
+  steps.
+- Screenshots of the API dialog and of the phone layout.
+- Conventions: how the API formats relate to the plan JSON.
+
 ## [0.7.0] - 2026-10-02
 
 ### Added
