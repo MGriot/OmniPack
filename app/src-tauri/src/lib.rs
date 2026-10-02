@@ -1,5 +1,8 @@
 //! Tauri shell: exposes the packing engine and a small file-based catalog to
-//! the web UI. All computation runs in-process; there is no server or port.
+//! the web UI. All computation runs in-process; on desktop the same engine can
+//! also be offered to other programs over HTTP (`local_api`).
+
+mod local_api;
 
 use omnipack_core::learn::{self, TrainReport};
 use omnipack_core::manual::{self, Probe};
@@ -412,10 +415,15 @@ async fn model_train(app: AppHandle) -> CmdResult<ModelFile> {
         let (ranker, report) = learn::train_on(&plans).ok_or("The marked plans contain no placement decisions to learn from.")?;
         let model = ModelFile { ranker, report, trained: now_secs() };
         write_atomic(&model_path(&app)?, &serde_json::to_string_pretty(&model).map_err(|e| e.to_string())?)?;
-        Ok(model)
+        Ok((model, app))
     })
     .await
     .map_err(|e| e.to_string())?
+    .map(|(model, app)| {
+        // A running local API switches to the new model.
+        tauri::async_runtime::spawn(async move { local_api::reload(&app).await });
+        model
+    })
 }
 
 #[tauri::command]
@@ -452,6 +460,11 @@ pub fn run() {
         // File access only to paths the user picks in a dialog.
         .plugin(tauri_plugin_fs::init())
         .manage(Mutex::new(ManualSession::default()))
+        .manage(local_api::LocalApi::default())
+        .setup(|app| {
+            local_api::autostart(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pack_request,
             optimize_request,
@@ -482,6 +495,8 @@ pub fn run() {
             model_info,
             model_reset,
             training_data,
+            local_api::imp::api_status,
+            local_api::imp::api_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OmniPack");

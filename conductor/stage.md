@@ -46,6 +46,12 @@ checks are warnings (`balance.rs`); the door opening is a hard rule. Optional
 lengthwise centring rebuilds the moved load through the placer's checks, so every
 loading step stays valid.
 
+## Integration API (0.7.0, 2026-10-02)
+`crates/omnipack-api` serves REST under `/api/v1`: the ERP format with unit codes, the
+full JSON, validation, jobs with callbacks, drop folders and an OpenAPI spec. It runs in
+`omnipack-server` (Windows/Linux/Docker) and in the desktop app ("Local API"). See
+docs/api.md.
+
 ## How to verify
 ```
 cargo test --workspace

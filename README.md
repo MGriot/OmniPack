@@ -41,6 +41,7 @@ Get the latest build from the [Releases](../../releases) page:
 |---|---|---|
 | Windows 10/11 (x64) | `OmniPack_<version>_x64_en-US.msi` or `…_x64-setup.exe` | Uses the WebView2 runtime (built into Windows 11). |
 | Android 7.0+ | `OmniPack_<version>_android-universal.apk` | Sideload: allow "install unknown apps" for your browser or file manager. |
+| API server | `omnipack-server_<version>_windows-x64.exe`, `…_linux-x64` | The integration API without the app, or `docker build` from the repository. See [docs/api.md](docs/api.md). |
 
 The installers are not code-signed yet, so Windows SmartScreen may ask you to confirm
 ("More info → Run anyway"). The APK is signed with a test key; see
@@ -108,6 +109,14 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
   - The decisions can be exported as training data for other models.
 - **Setup panel:** tabs (Container, Cargo, Strategy, Physics), foldable sections with
   summaries, a compact cargo list, and a resizable width.
+- **Integration API for ERP systems such as SAP:**
+  - REST with an OpenAPI description.
+  - A simple ERP format (SAP field names and unit codes) or the full JSON: send the
+    container and the cargo, get every placement back as JSON or a CSV load list.
+  - Background jobs with callbacks, file drop folders, and validation of plans made
+    elsewhere.
+  - It runs as a standalone `omnipack-server` (Windows, Linux, Docker) or inside the
+    Windows app ("Local API").
 - **Files:** save and open setups (JSON), a catalog of saved setups, saved solutions,
   and export of the plan as JSON or a CSV load list.
 - **Runs offline** on Windows and Android, with the engine built into the app.
@@ -119,6 +128,7 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 | [User guide](docs/user-guide.md) | Using the app: setup, strategies, physics options, reading the results |
 | [Physics model](docs/physics-model.md) | Exactly what is checked and how, at rest and in transport |
 | [Learned placement](docs/learning.md) | How OmniPack learns placement from your saved plans, and the training-data format |
+| [API](docs/api.md) | Connecting other systems (SAP and others): REST, jobs, drop folders, server setup |
 | [Research notes](docs/research/packing-stability.md) | Literature behind the placer, securing model and search, with measured effects |
 | [Conventions](docs/conventions.md) | Axes, units, shapes, orientations, fill patterns, JSON format |
 | [Building](docs/building.md) | Building from source, Windows installers, Android APK, signing |
@@ -130,7 +140,9 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 crates/omnipack-geom   shapes, orientations, exact collision / contact / drop queries (parry3d)
 crates/omnipack-core   data model, placer, static + transport physics, validator, generators
 crates/omnipack-opt    search: pattern sweep, BRKGA over orders and orientations, local search
-crates/omnipack-cli    `omnipack` command-line tool (pack, optimize, generate samples, benchmark)
+crates/omnipack-cli    `omnipack` command-line tool (pack, optimize, train, generate samples, benchmark)
+crates/omnipack-api    the integration API (REST, ERP format, jobs, drop folders), used by the server and the app
+crates/omnipack-server `omnipack-server`: the API as a standalone service (Dockerfile in the root)
 app/                   Tauri 2 app: src-tauri (Rust shell) + web UI (TypeScript, Vite, Babylon.js)
 docs/                  documentation and screenshots
 release/               built installers and APK (published as GitHub release assets)
@@ -153,7 +165,8 @@ The Rust/Tauri app started with version 0.2, a complete rewrite of the earlier P
 prototype. The prototype is kept in the `v0-legacy` tag. Version 0.5 adds the load
 balance, the vehicle axle loads, the floor and door checks, the lashing count and the
 ship-motion sea cases. Version 0.6 adds manual placement, saved solutions and a learned
-placement score. Next on the list:
+placement score. Version 0.7 adds the integration API (server and Local API) and better
+phone parity. Next on the list:
 
 - **Rigid-body simulation** (Rapier3D) with replay.
 - **More search:** NSGA-II Pareto fronts and block building on top of the current

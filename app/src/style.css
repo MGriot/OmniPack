@@ -237,6 +237,13 @@ body[data-mode="manual"] #canvas { cursor: crosshair; }
 .sol-row .train { display: flex; gap: 4px; align-items: center; color: var(--muted); font-size: 12px; }
 #modal-check-row label { display: flex; gap: 6px; align-items: center; }
 
+/* Local API dialog */
+.row-input { display: flex; gap: 4px; }
+.row-input input { flex: 1; min-width: 0; }
+.api-state.ok { color: var(--ok); }
+.api-state.bad { color: var(--bad); }
+.api-example { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all; margin: 4px 0; }
+
 /* Phones: the placement bar spans the view under the top overlay. */
 @media (max-width: 900px) {
   .manual-bar { top: 104px; bottom: auto; left: 8px; right: 8px; max-width: none; }

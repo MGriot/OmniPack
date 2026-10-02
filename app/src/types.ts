@@ -539,6 +539,24 @@ export interface TrainReport {
   top1_after: number;
 }
 
+/** The desktop app's local HTTP API (docs/api.md). */
+export interface LocalApiSettings {
+  enabled: boolean;
+  port: number;
+  api_key: string;
+  allow_network: boolean;
+  inbox: string | null;
+  outbox: string | null;
+}
+
+export interface ApiStatus {
+  supported: boolean;
+  running: boolean;
+  url: string | null;
+  error: string | null;
+  settings: LocalApiSettings;
+}
+
 export interface ModelFile {
   ranker: Ranker;
   report: TrainReport;

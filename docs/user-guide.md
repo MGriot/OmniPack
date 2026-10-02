@@ -20,7 +20,7 @@ The phone app has the same engine and features, with these differences:
   shows while you drag. To move a unit, choose **Select / move** in the bar over the 3D
   view, then drag it. The bar's ⟳, ↶ and ✕ buttons replace the keyboard shortcuts, and
   the exact X / Y / Z fields are under **Results**.
-- There is no panel resizing.
+- There is no panel resizing and no local API (that is a desktop feature).
 
 ### The setup panel
 
@@ -344,4 +344,24 @@ Below the list:
   models.
 
 [Learned placement](learning.md) explains how the learning works.
+
+## 10. Connect other systems (API)
+
+On Windows, **API…** in the toolbar lets other programs use OmniPack while it runs. An
+ERP system such as SAP, a warehouse system or a script sends a container and its cargo
+and gets every placement back, as JSON or a CSV load list.
+- **Enable the API** and **Apply** start it on `http://127.0.0.1:8765` (change the
+  **Port** if needed).
+- **API key:** programs must send it as `X-API-Key`. **New** makes a random one;
+  **Copy** copies it.
+- **Allow other computers** listens on the network. It needs a key, and you may have to
+  allow the port in the Windows firewall.
+- **Drop folders:** with an inbox and an outbox set, JSON requests or CSV item lists put
+  in the inbox are planned, and the result and a load list appear in the outbox.
+- The status line says whether the API runs. When it does, the dialog shows an example
+  `curl` call.
+
+The API starts again with the app until you switch it off. For a server without the
+app, use `omnipack-server`. [The API guide](api.md) describes the endpoints, the
+simple ERP format, jobs and callbacks, and SAP integration.
 

@@ -18,3 +18,4 @@ failing-request.json
 /release/*.msi
 /release/*.exe
 /release/*.apk
+/release/omnipack-server_*

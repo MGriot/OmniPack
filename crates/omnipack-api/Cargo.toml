@@ -1,0 +1,23 @@
+[package]
+name = "omnipack-api"
+description = "HTTP API for OmniPack: packing, search, validation, jobs with callbacks and file drop folders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+omnipack-core.workspace = true
+omnipack-opt.workspace = true
+omnipack-geom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "sync"] }
+tower-http = { version = "0.6", features = ["cors", "limit"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

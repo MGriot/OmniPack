@@ -1,0 +1,252 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OmniPack API",
+    "version": "1",
+    "description": "3D container loading with physics checks. Send the container and the cargo, get back where every unit goes, in loading order, with stability, securing (EN 12195-1) and load balance (CTU Code) checks. Two formats: the simple ERP format (/erp/plan; units converted, flat placement list) and the full OmniPack JSON (/pack, /optimize; mm and kg, see docs/conventions.md). Axes of every answer: x across the width from the left wall, y up from the floor, z along the length from the front wall towards the door; positions are the minimum corner of each unit's bounding box.",
+    "license": { "name": "Apache-2.0" }
+  },
+  "servers": [{ "url": "http://127.0.0.1:8765", "description": "Desktop app local API or omnipack-server on this computer" }],
+  "security": [{ "apiKey": [] }, { "bearer": [] }],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Is the service up?",
+        "security": [],
+        "responses": { "200": { "description": "Status", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "version": { "type": "string" }, "jobs_active": { "type": "integer" }, "learned_model": { "type": "boolean" } } } } } } }
+      }
+    },
+    "/api/v1/presets": {
+      "get": {
+        "summary": "Container presets, road vehicles and transport legs",
+        "responses": { "200": { "description": "Presets", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": { "summary": "This description", "security": [], "responses": { "200": { "description": "OpenAPI document" } } }
+    },
+    "/api/v1/erp/plan": {
+      "post": {
+        "summary": "Plan a load (simple ERP format)",
+        "description": "One pass of the placer, or a search when options.fill is `best` (options.search_seconds, capped by the server). Send `Accept: text/csv` or `?format=csv` for the load list instead.",
+        "parameters": [{ "$ref": "#/components/parameters/format" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErpRequest" }, "examples": { "delivery": { "$ref": "#/components/examples/erpDelivery" } } } } },
+        "responses": {
+          "200": { "description": "The plan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErpResponse" } }, "text/csv": { "schema": { "type": "string" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/pack": {
+      "post": {
+        "summary": "Plan a load (full OmniPack request)",
+        "description": "Body: a PackRequest { container, items, options } in mm and kg (docs/conventions.md). Answer: a PackResult (schema omnipack.plan/1) with every placement, metrics, violations, transport securing and load balance. `Accept: text/csv` gives the load list.",
+        "parameters": [{ "$ref": "#/components/parameters/format" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PackRequest" } } } },
+        "responses": { "200": { "description": "PackResult", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PackResult" } }, "text/csv": { "schema": { "type": "string" } } } }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/optimize": {
+      "post": {
+        "summary": "Search for the best plans (full format, synchronous)",
+        "description": "Runs the ★ Best search for `budget_s` seconds (capped by the server; use /jobs for longer searches). Answer: up to three distinct plans, best first.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request"], "properties": { "request": { "$ref": "#/components/schemas/PackRequest" }, "budget_s": { "type": "number", "default": 15 }, "options": { "type": "object", "description": "OptimizeOptions (objective weights, keep, seed, …)" } } } } } },
+        "responses": { "200": { "description": "OptimizeResult { solutions[], baseline, evaluated, elapsed_ms, cancelled }", "content": { "application/json": { "schema": { "type": "object" } } } }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/validate": {
+      "post": {
+        "summary": "Check a plan made elsewhere",
+        "description": "Places the given units exactly where they are said to be and checks everything: overlaps, support, stability, loads, door, transport securing and balance. Nothing is moved. Simple format: an ErpRequest with `placements` (in its units) → ErpResponse (status `invalid` lists the problems). Full format: { request: PackRequest, placements: [{ item_id, orientation, position: [x, y, z] mm }] } → ContainerPlan.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/ErpRequest" }, { "type": "object", "required": ["request", "placements"] }] }, "examples": { "erp": { "$ref": "#/components/examples/erpValidate" } } } } },
+        "responses": { "200": { "description": "The checked plan", "content": { "application/json": { "schema": { "type": "object" } } } }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/jobs": {
+      "post": {
+        "summary": "Start a background job",
+        "description": "For long searches. Poll /jobs/{id}, or give a callback: when the job ends, its result is POSTed there as { job_id, reference, status, error, result } (3 attempts), with the headers you list (for example the Authorization your endpoint needs).",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobSpec" }, "examples": { "search": { "$ref": "#/components/examples/jobSearch" } } } } },
+        "responses": { "202": { "description": "Queued", "headers": { "Location": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } }, "400": { "$ref": "#/components/responses/Error" } }
+      },
+      "get": { "summary": "All jobs (without results)", "responses": { "200": { "description": "Jobs, newest first", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } } } } } } }
+    },
+    "/api/v1/jobs/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "summary": "Status, progress and (when done) the result", "responses": { "200": { "description": "The job", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } }, "404": { "$ref": "#/components/responses/Error" } } },
+      "delete": { "summary": "Cancel (a search keeps the best plan found so far)", "responses": { "200": { "description": "The job", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } }, "404": { "$ref": "#/components/responses/Error" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": { "type": "apiKey", "in": "header", "name": "X-API-Key" },
+      "bearer": { "type": "http", "scheme": "bearer" }
+    },
+    "parameters": {
+      "format": { "name": "format", "in": "query", "required": false, "schema": { "type": "string", "enum": ["json", "csv"] }, "description": "csv = the load list" }
+    },
+    "responses": {
+      "Error": { "description": "Problem with the request", "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } } }
+    },
+    "schemas": {
+      "Units": {
+        "type": "object",
+        "properties": {
+          "length": { "type": "string", "default": "mm", "description": "mm, cm, m, in, ft (or SAP/ISO MMT, CMT, MTR, INH, FOT)" },
+          "weight": { "type": "string", "default": "kg", "description": "kg, g, t, lb (or KGM, GRM, TNE, TO, LBR)" }
+        }
+      },
+      "ErpContainer": {
+        "type": "object",
+        "description": "A preset and/or inside sizes (in the request's units; they override the preset).",
+        "properties": {
+          "preset": { "type": "string", "enum": ["20ft-dv", "40ft-dv", "40ft-hc", "semi-trailer-13.6"] },
+          "id": { "type": "string" },
+          "length": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" },
+          "max_payload": { "type": "number" }, "door_width": { "type": "number" }, "door_height": { "type": "number" },
+          "tare": { "type": "number" }, "floor_rating": { "type": "number", "description": "kg/m²" }
+        }
+      },
+      "ErpItem": {
+        "type": "object",
+        "required": ["id", "weight"],
+        "properties": {
+          "id": { "type": "string", "description": "Material number (SAP MATNR) or any unique id" },
+          "description": { "type": "string" },
+          "quantity": { "type": "integer", "default": 1 },
+          "shape": { "type": "string", "enum": ["box", "cylinder", "sphere"], "default": "box" },
+          "length": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" },
+          "diameter": { "type": "number", "description": "cylinder (standing drum: diameter × height) and sphere" },
+          "weight": { "type": "number", "description": "Gross weight of one unit" },
+          "stackable": { "type": "boolean", "default": true },
+          "max_load_on_top": { "type": "number", "description": "Most weight that may rest on it" },
+          "fragile": { "type": "boolean", "default": false },
+          "this_side_up": { "type": "boolean", "default": false },
+          "floor_only": { "type": "boolean", "default": false },
+          "stop": { "type": "integer", "default": 0, "description": "Delivery stop, 1 = unloaded first" },
+          "zone": { "type": "string", "enum": ["any", "front", "back"] },
+          "friction": { "type": "number" }
+        }
+      },
+      "ErpOptions": {
+        "type": "object",
+        "properties": {
+          "fill": { "type": "string", "enum": ["walls", "floor", "length", "rows", "corner", "learned", "best"], "default": "walls" },
+          "search_seconds": { "type": "number", "default": 10 },
+          "transport": { "type": "array", "items": { "type": "string", "enum": ["road", "rail", "rail_shunting", "sea_a", "sea_b", "sea_c"] }, "default": ["road"] },
+          "stop_order": { "type": "string", "enum": ["lifo", "fifo"] },
+          "rotation": { "type": "boolean", "default": true },
+          "centre_lengthwise": { "type": "boolean" },
+          "ctu_checks": { "type": "boolean" },
+          "dunnage_mm": { "type": "number", "default": 50 },
+          "friction": { "type": "number", "default": 0.4 },
+          "max_containers": { "type": "integer" },
+          "advanced": { "type": "object", "description": "Any PackOptions fields, merged last" }
+        }
+      },
+      "ErpRequest": {
+        "type": "object",
+        "required": ["container", "items"],
+        "properties": {
+          "reference": { "type": "string", "description": "Delivery / shipment number (SAP VBELN, TKNUM); returned unchanged" },
+          "units": { "$ref": "#/components/schemas/Units" },
+          "container": { "$ref": "#/components/schemas/ErpContainer" },
+          "vehicle": { "type": "string", "description": "Road vehicle preset name (axle loads)" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/ErpItem" } },
+          "options": { "$ref": "#/components/schemas/ErpOptions" },
+          "placements": { "type": "array", "description": "Only for /validate", "items": { "type": "object", "required": ["item_id", "x", "y", "z"], "properties": { "item_id": { "type": "string" }, "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "rotation": { "type": "string", "default": "WHD" } } } }
+        }
+      },
+      "ErpPlacement": {
+        "type": "object",
+        "properties": {
+          "container": { "type": "integer", "description": "1-based" },
+          "sequence": { "type": "integer", "description": "Loading order in the container, from 1" },
+          "item_id": { "type": "string" }, "unit": { "type": "integer", "description": "Which unit of the item, from 1" },
+          "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" },
+          "length": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" },
+          "rotation": { "type": "string", "description": "Item dimensions along container width/height/length: WHD = as defined, DHW = turned 90°, …" },
+          "on_floor": { "type": "boolean" },
+          "load_on_top": { "type": "number" },
+          "securing": { "type": "string", "enum": ["secured", "dunnage", "chocks", "lashing", "overloaded"] },
+          "lashings": { "type": "integer" }
+        }
+      },
+      "ErpResponse": {
+        "type": "object",
+        "properties": {
+          "reference": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok", "partial", "invalid"] },
+          "units": { "$ref": "#/components/schemas/Units" },
+          "summary": { "type": "object", "properties": { "units_requested": { "type": "integer" }, "units_placed": { "type": "integer" }, "containers": { "type": "integer" }, "volume_utilization": { "type": "number" }, "total_weight": { "type": "number" }, "valid": { "type": "boolean" }, "balance_warnings": { "type": "integer" }, "units_to_lash": { "type": "integer" } } },
+          "containers": { "type": "array", "items": { "type": "object", "properties": { "index": { "type": "integer" }, "id": { "type": "string" }, "length": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" }, "units": { "type": "integer" }, "weight": { "type": "number" }, "volume_utilization": { "type": "number" }, "center_of_gravity": { "type": "array", "items": { "type": "number" } }, "vgm": { "type": "number" }, "violations": { "type": "array", "items": { "type": "string" } }, "warnings": { "type": "array", "items": { "type": "string" } }, "transport": { "type": "array", "items": { "type": "object" } } } } },
+          "placements": { "type": "array", "items": { "$ref": "#/components/schemas/ErpPlacement" } },
+          "not_placed": { "type": "array", "items": { "type": "object", "properties": { "item_id": { "type": "string" }, "unit": { "type": "integer" }, "reason": { "type": "string" } } } }
+        }
+      },
+      "PackRequest": { "type": "object", "description": "Full OmniPack request { container, items, options } in mm and kg; see docs/conventions.md and crates/omnipack-core/src/model.rs.", "required": ["container", "items"] },
+      "PackResult": { "type": "object", "description": "Full OmniPack plan (schema omnipack.plan/1); see crates/omnipack-core/src/plan.rs." },
+      "JobSpec": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["pack", "best"], "default": "pack" },
+          "erp": { "$ref": "#/components/schemas/ErpRequest" },
+          "request": { "$ref": "#/components/schemas/PackRequest" },
+          "budget_s": { "type": "number", "description": "Search time for best, seconds (capped by the server)" },
+          "options": { "type": "object", "description": "OptimizeOptions for a full request" },
+          "reference": { "type": "string" },
+          "callback": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } } } }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "reference": { "type": "string" }, "kind": { "type": "string" },
+          "status": { "type": "string", "enum": ["queued", "running", "done", "failed", "cancelled"] },
+          "created": { "type": "integer" }, "finished": { "type": "integer" },
+          "progress": { "type": "object" }, "error": { "type": "string" },
+          "callback": { "type": "object", "properties": { "url": { "type": "string" }, "delivered": { "type": "boolean" }, "attempts": { "type": "integer" }, "last_error": { "type": "string" } } },
+          "result": { "type": "object", "description": "ErpResponse, PackResult or OptimizeResult" }
+        }
+      }
+    },
+    "examples": {
+      "erpDelivery": {
+        "summary": "An SAP delivery in cm and kg",
+        "value": {
+          "reference": "80001234",
+          "units": { "length": "CM", "weight": "KG" },
+          "container": { "preset": "40ft-hc" },
+          "items": [
+            { "id": "MAT-1001", "description": "Pallet, machine parts", "quantity": 6, "length": 120, "width": 80, "height": 100, "weight": 450, "this_side_up": true, "max_load_on_top": 1000 },
+            { "id": "MAT-2002", "description": "Carton, glassware", "quantity": 20, "length": 60, "width": 40, "height": 50, "weight": 25, "fragile": true },
+            { "id": "MAT-3003", "description": "Drum", "quantity": 4, "shape": "cylinder", "diameter": 58, "height": 88, "weight": 180, "this_side_up": true }
+          ],
+          "options": { "fill": "walls", "transport": ["road", "sea_b"] }
+        }
+      },
+      "erpValidate": {
+        "summary": "Check two pallets placed by hand",
+        "value": {
+          "reference": "check-1",
+          "units": { "length": "mm", "weight": "kg" },
+          "container": { "preset": "20ft-dv" },
+          "items": [{ "id": "PAL", "quantity": 2, "length": 1200, "width": 800, "height": 1000, "weight": 400 }],
+          "placements": [{ "item_id": "PAL", "x": 0, "y": 0, "z": 0 }, { "item_id": "PAL", "x": 0, "y": 1000, "z": 0 }]
+        }
+      },
+      "jobSearch": {
+        "summary": "A 30 s search with a callback to SAP Integration Suite",
+        "value": {
+          "kind": "best",
+          "budget_s": 30,
+          "reference": "80001234",
+          "erp": { "units": { "length": "mm", "weight": "kg" }, "container": { "preset": "20ft-dv" }, "items": [{ "id": "BOX", "quantity": 40, "length": 600, "width": 400, "height": 400, "weight": 20 }] },
+          "callback": { "url": "https://example.invalid/http/omnipack/result", "headers": { "Authorization": "Basic …" } }
+        }
+      }
+    }
+  }
+}

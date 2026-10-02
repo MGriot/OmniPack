@@ -1,0 +1,16 @@
+[package]
+name = "omnipack-server"
+description = "Standalone OmniPack API server (REST, jobs, file drop folders)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "omnipack-server"
+path = "src/main.rs"
+
+[dependencies]
+omnipack-api.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+serde = { workspace = true }

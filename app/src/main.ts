@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
+  type ApiStatus,
+  type LocalApiSettings,
   defaultBalance,
   defaultLashing,
   defaultOptions,
@@ -2213,6 +2215,114 @@ async function openSolutions() {
   await render();
 }
 
+// ---------- local API (desktop) ----------
+
+function randomKey(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The API dialog: the desktop app serves the OmniPack API to other programs. */
+async function openApiDialog() {
+  let status: ApiStatus;
+  try {
+    status = await invoke<ApiStatus>("api_status");
+  } catch (e) {
+    return setStatus(String(e), "bad");
+  }
+  const s: LocalApiSettings = { ...status.settings };
+  const box = h("div", { class: "modal-box wide" });
+  const overlay = h("div", { class: "modal" }, box);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  document.body.append(overlay);
+  const render = () => {
+    const keyInput = h("input", { type: "text", value: s.api_key, placeholder: "none (this computer only)", spellcheck: "false" }) as HTMLInputElement;
+    keyInput.addEventListener("change", () => (s.api_key = keyInput.value.trim()));
+    const folder = (label: string, get: () => string | null, set: (v: string | null) => void) => {
+      const input = h("input", { type: "text", value: get() ?? "", placeholder: "—" }) as HTMLInputElement;
+      input.addEventListener("change", () => set(input.value.trim() || null));
+      const pick = h("button", { type: "button", class: "small", onclick: async () => {
+        const dir = await open({ directory: true, multiple: false });
+        if (typeof dir === "string") {
+          set(dir);
+          render();
+        }
+      } }, "Browse…");
+      return h("label", { class: "field" }, h("span", {}, label), h("div", { class: "row-input" }, input, pick));
+    };
+    const url = status.url ?? `http://127.0.0.1:${s.port}`;
+    const keyHeader = s.api_key ? ` -H "X-API-Key: ${s.api_key}"` : "";
+    const toggle = (label: string, get: () => boolean, set: (v: boolean) => void, title?: string) => {
+      const cb = h("input", { type: "checkbox" }) as HTMLInputElement;
+      cb.checked = get();
+      cb.addEventListener("change", () => set(cb.checked));
+      return h("label", { title }, cb, label);
+    };
+    box.replaceChildren(
+      h("h3", {}, "Local API", h("span", { class: "spacer" }), h("button", { class: "small", onclick: close }, "✕")),
+      h("p", { class: "hint" }, "While OmniPack runs, other programs (an ERP system such as SAP, scripts, other apps) can send a container and its cargo and get every placement back, as JSON or a CSV load list. It is the same API as the standalone omnipack-server. See docs/api.md; the full description is at /api/v1/openapi.json."),
+      h(
+        "div",
+        { class: "checks" },
+        toggle("Enable the API", () => s.enabled, (v) => (s.enabled = v)),
+        toggle("Allow other computers", () => s.allow_network, (v) => {
+          s.allow_network = v;
+          if (v && !s.api_key) s.api_key = randomKey();
+          render();
+        }, "Listen on the network, not only on this computer. Needs an API key; check your firewall."),
+      ),
+      h(
+        "div",
+        { class: "grid two" },
+        num("Port", () => s.port, (v) => (s.port = Math.min(65535, Math.max(1024, Math.round(v ?? 8765)))), { min: 1024, max: 65535, step: "1", quiet: true }),
+        h("label", { class: "field" }, h("span", {}, "API key"), h("div", { class: "row-input" }, keyInput,
+          h("button", { type: "button", class: "small", title: "New random key", onclick: () => {
+            s.api_key = randomKey();
+            render();
+          } }, "New"),
+          h("button", { type: "button", class: "small", title: "Copy the key", onclick: async () => {
+            try {
+              await navigator.clipboard.writeText(s.api_key);
+              setStatus("API key copied.", "ok");
+            } catch {
+              keyInput.select();
+            }
+          } }, "Copy"),
+        )),
+        folder("Drop folder: inbox", () => s.inbox, (v) => (s.inbox = v)),
+        folder("Drop folder: outbox", () => s.outbox, (v) => (s.outbox = v)),
+      ),
+      h("p", { class: "hint" }, "Drop folders: JSON requests or CSV item lists put in the inbox are planned (CSV lists in a 40 ft high cube); the result and a load list appear in the outbox, for file-based interfaces."),
+      h(
+        "p",
+        { class: `hint api-state ${status.running ? "ok" : status.error ? "bad" : ""}` },
+        status.running ? `● Running at ${status.url}` : status.error ? `✗ ${status.error}` : "○ Stopped",
+      ),
+      status.running ? h("pre", { class: "api-example" }, `curl -X POST ${url}/api/v1/erp/plan${keyHeader} -H "Content-Type: application/json" -d @delivery.json`) : "",
+      h(
+        "div",
+        { class: "actions" },
+        h("button", { class: "primary", onclick: async () => {
+          s.api_key = keyInput.value.trim();
+          try {
+            status = await invoke<ApiStatus>("api_apply", { settings: s });
+            setStatus(status.running ? `Local API running at ${status.url}` : status.error ?? "Local API stopped.", status.error ? "bad" : "ok");
+          } catch (e) {
+            setStatus(String(e), "bad");
+          }
+          render();
+        } }, "Apply"),
+        h("button", { onclick: close }, "Close"),
+      ),
+    );
+  };
+  render();
+}
+
 // ---------- panel width ----------
 
 function applyEditorWidth() {
@@ -2242,6 +2352,7 @@ $("editor-resize").addEventListener("pointerdown", (e) => {
 
 for (const b of document.querySelectorAll<HTMLButtonElement>("#mode-switch button")) b.addEventListener("click", () => setMode(b.dataset.mode as Mode));
 $("solutions").addEventListener("click", openSolutions);
+$("api").addEventListener("click", openApiDialog);
 
 for (const b of document.querySelectorAll<HTMLButtonElement>("#mobile-tabs button[data-tab]")) b.addEventListener("click", () => showTab(b.dataset.tab!));
 $("pack-mobile").addEventListener("click", runPack);
@@ -2353,6 +2464,13 @@ async function init() {
     model = await invoke<ModelFile | null>("model_info");
   } catch {
     model = null;
+  }
+  // The local API is a desktop feature.
+  try {
+    const api = await invoke<ApiStatus>("api_status");
+    $("api").hidden = !api.supported;
+  } catch {
+    $("api").hidden = true;
   }
   applyEditorWidth();
   renderEditor();
