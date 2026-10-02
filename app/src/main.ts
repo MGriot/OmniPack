@@ -1509,10 +1509,20 @@ function updateStep() {
   $("next-label").textContent = next
     ? `Next: ${next.instance_id} (${next.shape.kind.replace("_", "-")}, ${fmt(next.mass, 1)} kg) → x ${fmt(next.position[0])}, y ${fmt(next.position[1])}, z ${fmt(next.position[2])}${next.needs_chocks ? " · chock it" : ""}`
     : plan
-      ? "All items loaded"
+      ? endOfLoading()
       : "";
   for (const id of ["first", "prev"]) $<HTMLButtonElement>(id).disabled = !plan || n <= 0;
   for (const id of ["next", "last"]) $<HTMLButtonElement>(id).disabled = !plan || n >= total;
+}
+
+/** The timeline line after the last step: what is still missing, if anything. */
+function endOfLoading(): string {
+  if (mode === "manual") {
+    const left = manual.remaining.reduce((n, [, k]) => n + k, 0);
+    return left > 0 ? `${plural(left, "unit")} still to place` : "All units placed";
+  }
+  const missing = result ? result.requested_units - result.packed_units : 0;
+  return missing > 0 ? `Loaded · ${plural(missing, "unit")} did not fit (see Results)` : "All items loaded";
 }
 
 function stopPlaying() {
@@ -1777,6 +1787,9 @@ async function applyManualView(view: ManualView) {
   current = 0;
   if (selected) selected = manual.placements.find((p) => p.instance_id === selected!.instance_id) ?? null;
   viewer.highlight(selected?.instance_id ?? null);
+  // The ghost showed the old plan; the next hover draws a fresh one (touch has no hover).
+  manualVersion++;
+  viewer.hideGhost();
   await showPlan();
   renderResults();
   if (ui.tab === "place") renderEditor();
@@ -1914,14 +1927,19 @@ function queueProbe(job: () => Promise<void>) {
   });
 }
 
+/** Counts manual plan changes, so a probe answered for an older plan is not drawn. */
+let manualVersion = 0;
+
 /** Shows where a unit would land under the pointer, green or red. */
 function ghostAt(itemId: string, pose: Pose, hit: Hit, replace: string | null) {
   const [x, z] = snapped(hit.point[0] - pose.extents[0] / 2, hit.point[2] - pose.extents[2] / 2, pose.extents, replace);
   const y = manual.gravity ? null : hit.point[1];
+  const version = manualVersion;
   queueProbe(async () => {
     try {
+      if (version !== manualVersion) return;
       const pr = await invoke<Probe>("manual_probe", { itemId, orientation: pose.orientation, x, z, y, replace });
-      if (!manual.item && !replace) return;
+      if ((!manual.item && !replace) || version !== manualVersion) return;
       const p = pr.placement;
       const key = meshKey(p);
       if (!meshCache.has(key)) meshCache.set(key, await invoke<RenderMesh>("shape_mesh", { shape: p.shape, orientation: p.orientation }));
