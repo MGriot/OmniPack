@@ -52,6 +52,9 @@ import {
 import { previewCanvas, prunePreviews } from "./preview";
 import { PlanViewer, type BalanceGuides, type Hit, type Interaction } from "./viewer";
 
+/** Phone or tablet: no hover, no keyboard shortcuts. Some Android WebViews report a fine pointer. */
+const TOUCH = /Android|iPhone|iPad/i.test(navigator.userAgent) || window.matchMedia("(pointer: coarse)").matches;
+
 // ---------- state ----------
 
 let req: PackRequest = emptyRequest();
@@ -431,7 +434,7 @@ function renderLegend() {
   if (focusKeys.size) {
     legend.append(h("button", { class: "small", onclick: () => { focusKeys.clear(); applyFocus(); renderLegend(); } }, "Show all"));
   } else if (["item", "stop", "securing", "impact", "floor"].includes(mode)) {
-    legend.append(h("p", { class: "hint" }, "Click an entry to isolate it"));
+    legend.append(h("p", { class: "hint" }, `${TOUCH ? "Tap" : "Click"} an entry to isolate it`));
   }
 }
 
@@ -1173,7 +1176,8 @@ function currentPlan(): ContainerPlan | null {
   return result?.containers[current] ?? null;
 }
 
-const fmt = (v: number, d = 0) => v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+/** A number with `d` decimals; values that round to zero show as 0, never -0. */
+const fmt = (v: number, d = 0) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function describeViolation(v: Record<string, unknown>): string {
@@ -1658,12 +1662,15 @@ async function loadSample(kind: string) {
   }
 }
 
+/** A file path for messages; Android hands out content:// URIs that mean nothing to people. */
+const shownPath = (path: string) => (path.startsWith("content://") ? "." : ` ${path}`);
+
 async function saveTextFile(defaultPath: string, ext: string, contents: string) {
   const path = await save({ defaultPath, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
   if (!path) return;
   try {
     await writeTextFile(path, contents);
-    setStatus(`Saved ${path}`, "ok");
+    setStatus(`Saved${shownPath(path)}`, "ok");
   } catch (e) {
     setStatus(String(e), "bad");
   }
@@ -1677,7 +1684,7 @@ async function openRequest() {
     const parsed = JSON.parse(text) as PackRequest;
     if (!parsed.container || !Array.isArray(parsed.items)) throw new Error("not an OmniPack setup file");
     loadRequest(parsed);
-    setStatus(`Opened ${path}`);
+    setStatus(`Opened${shownPath(path)}`);
   } catch (e) {
     await message(String(e), { title: "Cannot open file", kind: "error" });
   }
@@ -1813,7 +1820,7 @@ async function setMode(m: Mode) {
     viewer.setInteraction(manualInteraction);
     renderEditor();
     await startManual();
-    setStatus("Manual mode: pick a unit in the Place tab, then click in the 3D view.");
+    setStatus(`Manual mode: pick a unit in the Place tab, then ${TOUCH ? "tap" : "click"} in the 3D view.`);
   } else {
     viewer.setInteraction(null);
     result = autoResult;
@@ -1851,9 +1858,6 @@ function setManualHint(text: string) {
   const el = document.getElementById("manual-hint");
   if (el) el.textContent = text;
 }
-
-/** Touch screen without a mouse: no hover, no keyboard shortcuts. */
-const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 
 /** The units-to-place bar over the 3D view (handy on phones). */
 function renderManualBar() {
