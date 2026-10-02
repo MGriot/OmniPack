@@ -62,6 +62,9 @@ export class PlanViewer {
   private interaction: Interaction | null = null;
   private dragging: Placement | null = null;
   private dragMoved = false;
+  private dragFrom: [number, number] = [0, 0];
+  /** The view was framed while the canvas was hidden (phone tabs): frame it once visible. */
+  private framePending = false;
   private ghost: Mesh | null = null;
   private ghostKey = "";
   private staticMeshes: (Mesh | LinesMesh)[] = [];
@@ -86,28 +89,27 @@ export class PlanViewer {
     const sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.6), this.scene);
     sun.intensity = 0.55;
 
-    // Dragging a unit is handled before the camera sees the pointer, so the
-    // view does not turn while a unit is moved.
+    // Dragging a unit: the press and the release still reach the camera (so
+    // its button state stays right and the release is delivered at all), but
+    // the moves in between do not, so the view does not turn.
     this.scene.onPrePointerObservable.add((info) => {
       const act = this.interaction;
       if (!act) return;
       if (info.type === PointerEventTypes.POINTERDOWN && info.event.button === 0) {
         const hit = this.hitAt(null);
-        if (hit?.placement && act.dragStart(hit.placement)) {
-          this.dragging = hit.placement;
-          this.dragMoved = false;
-          info.skipOnPointerObservable = true;
-        }
+        this.dragging = hit?.placement && act.dragStart(hit.placement) ? hit.placement : null;
+        this.dragMoved = false;
+        this.dragFrom = [this.scene.pointerX, this.scene.pointerY];
       } else if (this.dragging && info.type === PointerEventTypes.POINTERMOVE) {
+        info.skipOnPointerObservable = true;
+        // A few pixels of jitter (a tap on a touch screen) is not a drag.
+        if (!this.dragMoved && Math.hypot(this.scene.pointerX - this.dragFrom[0], this.scene.pointerY - this.dragFrom[1]) < 8) return;
         this.dragMoved = true;
         act.drag(this.hitAt(this.dragging));
-        info.skipOnPointerObservable = true;
       } else if (this.dragging && info.type === PointerEventTypes.POINTERUP) {
         const p = this.dragging;
         this.dragging = null;
         if (this.dragMoved) act.drop(this.hitAt(p));
-        // A press without movement still selects the unit (as a tap).
-        if (this.dragMoved) info.skipOnPointerObservable = true;
         this.dragMoved = false;
       }
     });
@@ -126,7 +128,10 @@ export class PlanViewer {
       }
     });
     this.engine.runRenderLoop(() => this.scene.render());
-    new ResizeObserver(() => this.engine.resize()).observe(canvas);
+    new ResizeObserver(() => {
+      this.engine.resize();
+      if (this.framePending && canvas.clientWidth > 0 && canvas.clientHeight > 0) this.resetCamera();
+    }).observe(canvas);
   }
 
   onPick(cb: (p: Placement | null) => void) {
@@ -351,6 +356,9 @@ export class PlanViewer {
   }
 
   resetCamera() {
+    const canvas = this.engine.getRenderingCanvas();
+    this.framePending = !canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0;
+    if (this.framePending) return;
     const [W, H, D] = this.size;
     // Look in through the door (z = depth), from above and slightly to the side.
     this.camera.target = new Vector3(W / 2, H / 3, D / 2);

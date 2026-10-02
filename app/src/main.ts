@@ -829,7 +829,9 @@ function placeTab(): (HTMLElement | string)[] {
     return h("label", { title }, cb, label);
   };
   return [
-    h("p", { class: "hint" }, "Pick a unit, then click in the 3D view to place it. Drag a placed unit to move it; click one to select it. Keys: R rotates, arrows nudge (Shift ×10), Delete removes, Ctrl+Z undoes, Esc drops the unit you hold."),
+    h("p", { class: "hint" }, TOUCH
+      ? "Pick a unit, then tap in the 3D view to place it. To move a unit, choose “Select / move” in the bar over the 3D view, then drag it. Tap a unit to select it: ⟳ rotates, ✕ removes, ↶ undoes, and Results has exact X / Y / Z fields."
+      : "Pick a unit, then click in the 3D view to place it. Drag a placed unit to move it; click one to select it. Keys: R rotates, arrows nudge (Shift ×10), Delete removes, Ctrl+Z undoes, Esc drops the unit you hold."),
     h(
       "div",
       { class: "place-list" },
@@ -1848,6 +1850,9 @@ function setManualHint(text: string) {
   if (el) el.textContent = text;
 }
 
+/** Touch screen without a mouse: no hover, no keyboard shortcuts. */
+const TOUCH = window.matchMedia("(pointer: coarse)").matches;
+
 /** The units-to-place bar over the 3D view (handy on phones). */
 function renderManualBar() {
   const bar = document.getElementById("manual-bar");
@@ -1862,7 +1867,7 @@ function renderManualBar() {
     h("button", { title: "Rotate (R)", onclick: rotateManual }, "⟳"),
     h("button", { title: "Undo (Ctrl+Z)", onclick: undoManual, disabled: !manual.history.length }, "↶"),
     h("button", { title: "Remove the selected unit (Delete)", onclick: removeSelected, disabled: !selected }, "✕"),
-    h("span", { id: "manual-hint", class: "hint" }, manual.item ? "Click in the container to place it" : selected ? `${selected.instance_id}: drag it, or use the arrow keys` : ""),
+    h("span", { id: "manual-hint", class: "hint" }, manual.item ? `${TOUCH ? "Tap" : "Click"} in the container to place it` : selected ? `${selected.instance_id}: drag it${TOUCH ? "" : ", or use the arrow keys"}` : TOUCH ? "Drag a unit to move it" : ""),
   );
 }
 
@@ -1923,6 +1928,8 @@ function ghostAt(itemId: string, pose: Pose, hit: Hit, replace: string | null) {
 }
 
 let dragUnit: Placement | null = null;
+/** The last point the dragged unit was over, used when it is let go off the floor. */
+let dragHit: Hit | null = null;
 
 const manualInteraction: Interaction = {
   hover(hit) {
@@ -1945,16 +1952,20 @@ const manualInteraction: Interaction = {
   dragStart(p) {
     if (manual.item) return false;
     dragUnit = p;
+    dragHit = null;
     selected = p;
     viewer.highlight(p.instance_id);
     return true;
   },
   drag(hit) {
+    if (hit) dragHit = hit;
     if (dragUnit && hit) ghostAt(dragUnit.item_id, { orientation: dragUnit.orientation, extents: dragUnit.size }, hit, dragUnit.instance_id);
   },
   drop(hit) {
     const p = dragUnit;
+    hit ??= dragHit;
     dragUnit = null;
+    dragHit = null;
     viewer.hideGhost();
     if (!p || !hit) return;
     const [x, z] = snapped(hit.point[0] - p.size[0] / 2, hit.point[2] - p.size[2] / 2, p.size, p.instance_id);

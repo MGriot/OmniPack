@@ -137,7 +137,15 @@ h3 .spacer { flex: 1; }
   .toolbar .brand { display: none; }
   .toolbar > * { flex: none; }
   .status { max-width: 180px; }
-  main { grid-template-columns: 1fr; height: calc(100% - 46px - 52px); }
+  main { grid-template-columns: 1fr; height: calc(100% - 46px - 52px - 24px); }
+  /* The most used controls first: the rest of the toolbar scrolls sideways. */
+  #mode-switch { order: -2; }
+  #solutions-group { order: -1; }
+  /* Messages get their own line above the tabs (the toolbar end is off-screen). */
+  .toolbar .status {
+    position: fixed; left: 0; right: 0; bottom: 52px; height: 24px; max-width: none; z-index: 20;
+    padding: 4px 10px; font-size: 12px; background: var(--panel); border-top: 1px solid var(--border);
+  }
   #editor, #stage, #results { display: none; border: 0; }
   #editor-resize { display: none; }
   body[data-tab="setup"] #editor,

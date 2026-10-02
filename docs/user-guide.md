@@ -9,6 +9,19 @@ The app has two modes, switched in the toolbar:
 - **Manual:** you place units yourself, and OmniPack can fill in the rest (see
   [Manual placement](#8-manual-placement)).
 
+### On a phone or tablet
+
+The phone app has the same engine and features, with these differences:
+- One panel at a time: **Setup**, **3D view** or **Results**, chosen at the bottom.
+  Messages show on a line just above those tabs.
+- The toolbar scrolls sideways. **Auto | Manual** and **Solutions…** come first, and
+  Sample, New, Open, Save and the catalog follow.
+- In manual mode, tap to place. There is no hover preview, so the green or red ghost only
+  shows while you drag. To move a unit, choose **Select / move** in the bar over the 3D
+  view, then drag it. The bar's ⟳, ↶ and ✕ buttons replace the keyboard shortcuts, and
+  the exact X / Y / Z fields are under **Results**.
+- There is no panel resizing.
+
 ### The setup panel
 
 The setup panel on the left has four tabs: **Container**, **Cargo**, **Strategy** and
