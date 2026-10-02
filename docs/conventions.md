@@ -107,3 +107,8 @@ Request: `PackRequest { container, items, options }` (see
 `crates/omnipack-core/src/model.rs`). Response: `PackResult` with schema tag
 `omnipack.plan/1` (see `plan.rs`). Generate an example with
 `omnipack gen mixed 1`.
+
+The API's `/pack` and `/optimize` take this JSON unchanged. Its simple ERP format
+(`/erp/plan`) uses the same axes but names the box sides `length` (along z), `width`
+(x) and `height` (y), and converts the units given in the request (mm, cm, m, in, ft;
+kg, g, t, lb, or the SAP codes). See [api.md](api.md).

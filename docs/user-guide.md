@@ -22,6 +22,8 @@ The phone app has the same engine and features, with these differences:
   the exact X / Y / Z fields are under **Results**.
 - There is no panel resizing and no local API (that is a desktop feature).
 
+<img src="images/android-manual.png" alt="Manual mode on a phone: three pallets placed by tapping, the placement bar over the 3D view, and the units still to place" width="300">
+
 ### The setup panel
 
 The setup panel on the left has four tabs: **Container**, **Cargo**, **Strategy** and
@@ -350,6 +352,9 @@ Below the list:
 On Windows, **API…** in the toolbar lets other programs use OmniPack while it runs. An
 ERP system such as SAP, a warehouse system or a script sends a container and its cargo
 and gets every placement back, as JSON or a CSV load list.
+
+![The API dialog: the Local API running on port 8765 with a generated key](images/desktop-api.png)
+
 - **Enable the API** and **Apply** start it on `http://127.0.0.1:8765` (change the
   **Port** if needed).
 - **API key:** programs must send it as `X-API-Key`. **New** makes a random one;

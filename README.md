@@ -33,6 +33,8 @@ A second, independent validator re-checks every plan before it is shown.
 
 ![Manual mode: units placed by hand in a 40 ft high cube, one flagged as unstable, and the green ghost of the next drum](docs/images/desktop-manual.png)
 
+![Local API in the Windows app: other programs, such as SAP, send the cargo and get every placement back](docs/images/desktop-api.png)
+
 ## Download
 
 Get the latest build from the [Releases](../../releases) page:
