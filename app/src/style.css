@@ -39,10 +39,14 @@ input[type="checkbox"] { width: auto; }
 input[type="color"] { padding: 0 2px; height: 26px; width: 34px; }
 input[type="range"] { padding: 0; }
 
+/* Narrow windows scroll the toolbar sideways rather than cutting off Pack and the language. */
 .toolbar {
   height: 46px; display: flex; align-items: center; gap: 14px; padding: 0 12px;
   background: var(--panel); border-bottom: 1px solid var(--border);
+  overflow-x: auto; scrollbar-width: thin;
 }
+/* Closed, these menus only show "Sample…" / "Catalog…"; the long entries are in the open list. */
+#sample, #catalog { max-width: 150px; }
 .brand { font-weight: 700; font-size: 15px; letter-spacing: 0.3px; }
 .group { display: flex; gap: 6px; align-items: center; }
 .spacer { flex: 1; }

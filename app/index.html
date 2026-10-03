@@ -10,67 +10,71 @@
     <header class="toolbar">
       <div class="brand">OmniPack</div>
       <div class="group">
-        <select id="sample" title="Load a sample setup">
-          <option value="">Sample…</option>
-          <option value="mixed">Mixed truck load</option>
-          <option value="shapes">All shapes (20 ft container)</option>
-          <option value="br1">Benchmark BR1 (3 box types)</option>
-          <option value="br4">Benchmark BR4 (10 box types)</option>
-          <option value="br7">Benchmark BR7 (20 box types)</option>
+        <select id="sample" title="Load a sample setup" data-i18n-title="Load a sample setup">
+          <option value="" data-i18n="Sample…">Sample…</option>
+          <option value="mixed" data-i18n="Mixed truck load">Mixed truck load</option>
+          <option value="shapes" data-i18n="All shapes (20 ft container)">All shapes (20 ft container)</option>
+          <option value="br1" data-i18n="Benchmark BR1 (3 box types)">Benchmark BR1 (3 box types)</option>
+          <option value="br4" data-i18n="Benchmark BR4 (10 box types)">Benchmark BR4 (10 box types)</option>
+          <option value="br7" data-i18n="Benchmark BR7 (20 box types)">Benchmark BR7 (20 box types)</option>
         </select>
-        <button id="new">New</button>
-        <button id="open">Open…</button>
-        <button id="save">Save…</button>
+        <button id="new" data-i18n="New">New</button>
+        <button id="open" data-i18n="Open…">Open…</button>
+        <button id="save" data-i18n="Save…">Save…</button>
       </div>
       <div class="group">
-        <select id="catalog" title="Saved setups"><option value="">Catalog…</option></select>
-        <button id="cat-save">Save to catalog</button>
-        <button id="cat-delete" title="Delete selected catalog entry">Delete</button>
+        <select id="catalog" title="Saved setups" data-i18n-title="Saved setups"><option value="">Catalog…</option></select>
+        <button id="cat-save" data-i18n="Save to catalog">Save to catalog</button>
+        <button id="cat-delete" title="Delete selected catalog entry" data-i18n="Delete" data-i18n-title="Delete selected catalog entry">Delete</button>
       </div>
       <div class="group" id="solutions-group">
-        <button id="solutions" title="Saved plans, training data and the learned placement">Solutions…</button>
-        <button id="api" title="Let other programs (ERP systems such as SAP) send cargo and get the placements back">API…</button>
+        <button id="solutions" title="Saved plans, training data and the learned placement" data-i18n="Solutions…" data-i18n-title="Saved plans, training data and the learned placement">Solutions…</button>
+        <button id="api" title="Let other programs (ERP systems such as SAP) send cargo and get the placements back" data-i18n-title="Let other programs (ERP systems such as SAP) send cargo and get the placements back">API…</button>
       </div>
-      <div id="mode-switch" class="segmented" title="Auto: the packer places everything. Manual: you place units yourself.">
-        <button data-mode="auto" class="active">Auto</button>
-        <button data-mode="manual">Manual</button>
+      <div id="mode-switch" class="segmented" title="Auto: the packer places everything. Manual: you place units yourself." data-i18n-title="Auto: the packer places everything. Manual: you place units yourself.">
+        <button data-mode="auto" class="active" data-i18n="Auto">Auto</button>
+        <button data-mode="manual" data-i18n="Manual">Manual</button>
       </div>
       <div class="spacer"></div>
       <span id="status" class="status"></span>
       <button id="pack" class="primary">Pack ▶</button>
+      <select id="lang" title="Language / Lingua">
+        <option value="en">EN</option>
+        <option value="it">IT</option>
+      </select>
     </header>
 
     <main>
       <aside id="editor" class="panel"></aside>
-      <div id="editor-resize" title="Drag to resize the panel"></div>
+      <div id="editor-resize" title="Drag to resize the panel" data-i18n-title="Drag to resize the panel"></div>
 
       <section id="stage">
         <canvas id="canvas"></canvas>
-        <div id="empty" class="empty">Load a sample or add items, then press <b>Pack</b>.</div>
+        <div id="empty" class="empty"></div>
         <div class="overlay top">
           <div id="container-tabs" class="tabs"></div>
-          <label>Colour by
+          <label><span data-i18n="Colour by">Colour by</span>
             <select id="color-mode">
-              <option value="item">Item</option>
-              <option value="stop">Delivery stop</option>
-              <option value="load">Load on top / limit</option>
-              <option value="margin">Stability margin</option>
-              <option value="securing">Transport securing needed</option>
-              <option value="impact">Impact heatmap (transport force)</option>
-              <option value="floor">Floor pressure / rating</option>
+              <option value="item" data-i18n="Item">Item</option>
+              <option value="stop" data-i18n="Delivery stop">Delivery stop</option>
+              <option value="load" data-i18n="Load on top / limit">Load on top / limit</option>
+              <option value="margin" data-i18n="Stability margin">Stability margin</option>
+              <option value="securing" data-i18n="Transport securing needed">Transport securing needed</option>
+              <option value="impact" data-i18n="Impact heatmap (transport force)">Impact heatmap (transport force)</option>
+              <option value="floor" data-i18n="Floor pressure / rating">Floor pressure / rating</option>
             </select>
           </label>
-          <button id="reset-cam" title="Reset camera">⟲</button>
+          <button id="reset-cam" title="Reset camera" data-i18n-title="Reset camera">⟲</button>
         </div>
         <div id="legend" class="overlay legend"></div>
         <div id="manual-bar" class="overlay manual-bar"></div>
         <div class="overlay bottom timeline">
           <div class="transport">
-            <button id="first" title="Empty container (Home)">⏮</button>
-            <button id="prev" title="Previous item (←)">◀</button>
-            <button id="play" title="Play / pause (Space)">▶</button>
-            <button id="next" title="Next item (→)">▶|</button>
-            <button id="last" title="All items (End)">⏭</button>
+            <button id="first" title="Empty container (Home)" data-i18n-title="Empty container (Home)">⏮</button>
+            <button id="prev" title="Previous item (←)" data-i18n-title="Previous item (←)">◀</button>
+            <button id="play" title="Play / pause (Space)" data-i18n-title="Play / pause (Space)">▶</button>
+            <button id="next" title="Next item (→)" data-i18n-title="Next item (→)">▶|</button>
+            <button id="last" title="All items (End)" data-i18n-title="All items (End)">⏭</button>
           </div>
           <input id="step" type="range" min="0" max="0" value="0" />
           <div class="step-info">
@@ -83,9 +87,9 @@
       <aside id="results" class="panel"></aside>
     </main>
     <nav id="mobile-tabs">
-      <button data-tab="setup" class="active">Setup</button>
-      <button data-tab="view">3D view</button>
-      <button data-tab="results">Results</button>
+      <button data-tab="setup" class="active" data-i18n="Setup">Setup</button>
+      <button data-tab="view" data-i18n="3D view">3D view</button>
+      <button data-tab="results" data-i18n="Results">Results</button>
       <button id="pack-mobile" class="primary">Pack ▶</button>
     </nav>
     <div id="modal" class="modal" hidden>
@@ -93,12 +97,12 @@
         <label id="modal-label" for="modal-input"></label>
         <input id="modal-input" type="text" />
         <div id="modal-check-row" hidden>
-          <label><input id="modal-check" type="checkbox" /> Use for training</label>
+          <label><input id="modal-check" type="checkbox" /> <span data-i18n="Use for training">Use for training</span></label>
           <p id="modal-check-hint" class="hint"></p>
         </div>
         <div class="actions">
-          <button type="button" id="modal-cancel">Cancel</button>
-          <button type="submit" class="primary">OK</button>
+          <button type="button" id="modal-cancel" data-i18n="Cancel">Cancel</button>
+          <button type="submit" class="primary" data-i18n="OK">OK</button>
         </div>
       </form>
     </div>

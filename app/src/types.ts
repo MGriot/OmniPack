@@ -1,6 +1,8 @@
 // Mirrors the serde model in crates/omnipack-core (model.rs, plan.rs).
 // Units: mm and kg. Y is up; the door is at z = depth.
 
+import type { Key } from "./i18n";
+
 export type Shape =
   | { kind: "box"; w: number; h: number; d: number }
   | { kind: "cylinder"; radius: number; length: number }
@@ -12,7 +14,7 @@ export type Shape =
 
 export type ShapeKind = Shape["kind"];
 
-export const SHAPE_KINDS: [ShapeKind, string][] = [
+export const SHAPE_KINDS: [ShapeKind, Key][] = [
   ["box", "Box"],
   ["cylinder", "Cylinder / drum"],
   ["sphere", "Sphere"],

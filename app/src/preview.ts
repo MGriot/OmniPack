@@ -18,6 +18,7 @@ import {
   VertexData,
 } from "@babylonjs/core";
 import type { ItemPreview, ItemSpec } from "./types";
+import { t } from "./i18n";
 
 /** Preview size in CSS pixels. */
 const SIZE = 96;
@@ -201,7 +202,7 @@ export function previewCanvas(it: ItemSpec, color: string, onInfo: (info: ItemPr
   const preview = p;
   const canvas = document.createElement("canvas");
   canvas.className = "item-preview";
-  canvas.title = "Drag to rotate · pink dot = centre of mass · red/green/blue = X/Y/Z";
+  canvas.title = t("Drag to rotate · pink dot = centre of mass · red/green/blue = X/Y/Z");
   canvas.width = canvas.height = SIZE;
   preview.canvas = canvas;
   preview.onInfo(onInfo);
