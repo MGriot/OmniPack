@@ -1,5 +1,7 @@
 # User guide
 
+*[Versione italiana](it/user-guide.md)*
+
 This guide walks through the OmniPack app on Windows and Android. Both use the same
 screens; on a phone they are split into **Setup**, **3D view** and **Results** tabs, with
 a **Pack** button at the bottom.
@@ -9,13 +11,26 @@ The app has two modes, switched in the toolbar:
 - **Manual:** you place units yourself, and OmniPack can fill in the rest (see
   [Manual placement](#8-manual-placement)).
 
+### Language
+
+The app is in English and Italian.
+- On first start it follows the system language: Italian if Windows or Android is set to
+  Italian, English otherwise.
+- The **EN / IT** selector at the right end of the toolbar switches the language at any
+  time, and the choice is remembered.
+- In Italian, numbers and dates use the Italian format (0,45 and 1.200). In English, they
+  use your system's format, as before.
+- Saved setups, plans and solutions do not depend on the language. The API stays in
+  English.
+- The Windows installer (`setup.exe`) also uses Italian on an Italian system.
+
 ### On a phone or tablet
 
 The phone app has the same engine and features, with these differences:
 - One panel at a time: **Setup**, **3D view** or **Results**, chosen at the bottom.
   Messages show on a line just above those tabs.
 - The toolbar scrolls sideways. **Auto | Manual** and **Solutions…** come first, and
-  Sample, New, Open, Save and the catalog follow.
+  Sample, New, Open, Save, the catalog and the language selector follow.
 - In manual mode, tap to place. There is no hover preview, so the green or red ghost only
   shows while you drag. To move a unit, choose **Select / move** in the bar over the 3D
   view, then drag it. The bar's ⟳, ↶ and ✕ buttons replace the keyboard shortcuts, and
@@ -173,6 +188,9 @@ Gravity support, tipping at rest, stacking limits and payload are always checked
   blocks it.
 - **Tipping:** the item and everything on it must not tip, unless it is blocked higher up
   than its centre of gravity.
+- **Avoid tipping:** never places a unit where it would tip in transport (for example,
+  slender items are laid down). A unit with no other way to fit is still loaded and
+  flagged for lashing.
 - **Dynamic stacking:** stack limits are checked with the vertical acceleration added,
   which matters at sea.
 - **Chocks for round items:** lying drums and balls are held with wedges. Switch this off
@@ -272,7 +290,9 @@ smaller balance warnings; the **Prefer** slider gives them more weight towards
 - **Catalog:** named setups kept inside the app.
 - **Export plan (JSON):** every placement with its coordinates, for other software.
 - **Export load list (CSV):** a loading list for the warehouse, with position, size,
-  orientation, mass, floor pressure, stop, chocks, lashings and securing notes.
+  orientation, mass, floor pressure, stop, chocks, lashings and securing notes. The
+  column names stay in English in every language, so programs that read the file keep
+  working; the notes follow the app's language.
 - **Save solution…:** keeps the plan, with its setup, inside the app (see below).
 
 ## 8. Manual placement

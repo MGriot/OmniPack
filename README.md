@@ -122,12 +122,15 @@ The installers are not code-signed yet, so Windows SmartScreen may ask you to co
 - **Files:** save and open setups (JSON), a catalog of saved setups, saved solutions,
   and export of the plan as JSON or a CSV load list.
 - **Runs offline** on Windows and Android, with the engine built into the app.
+- **English and Italian:** the app starts in the system language, and the EN / IT
+  selector in the toolbar switches it. An Italian user guide is included.
 
 ## Documentation
 
 | Document | For |
 |---|---|
 | [User guide](docs/user-guide.md) | Using the app: setup, strategies, physics options, reading the results |
+| [Guida utente](docs/it/user-guide.md) | The user guide in Italian |
 | [Physics model](docs/physics-model.md) | Exactly what is checked and how, at rest and in transport |
 | [Learned placement](docs/learning.md) | How OmniPack learns placement from your saved plans, and the training-data format |
 | [API](docs/api.md) | Connecting other systems (SAP and others): REST, jobs, drop folders, server setup |
