@@ -4,6 +4,31 @@ All notable changes to OmniPack are documented here. Version 0.2 restarts the
 numbering for the Rust/Tauri rewrite; the 1.x entries further down belong to the
 earlier Python prototype (tag `v0-legacy`).
 
+## [0.8.0] - 2026-10-02
+
+### Added
+- **Italian.** The whole app (Windows and Android) is available in English and Italian.
+  - On first start it follows the system language. The **EN / IT** selector at the
+    right end of the toolbar switches it at any time, without losing the setup, the
+    plan or the manual session, and the choice is remembered.
+  - Everything is translated: menus, setup fields and hints, results, legends,
+    messages, dialogs, and the text the engine sends (transport legs, vehicles,
+    violations, reasons for units left out, ship-motion warnings).
+  - In Italian, numbers and dates use the Italian format (0,45 and 1.200).
+  - Saved files do not depend on the language. The load-list CSV keeps its English
+    column names, and the API stays in English.
+  - The Windows setup.exe installer is in Italian on Italian systems.
+- **Italian user guide:** [docs/it/user-guide.md](docs/it/user-guide.md).
+
+### Changed
+- Small English wording fixes that came with the translation:
+  - Counts are singular when there is one: "1 type", "1 warning", "1 unit".
+  - Search plans are labelled with pattern names rather than internal ids.
+  - The sample message names the sample ("Mixed truck load").
+
+### Documentation
+- The user guide describes the language switch and the **Avoid tipping** check.
+
 ## [0.7.1] - 2026-10-02
 
 ### Fixed
